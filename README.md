@@ -18,100 +18,18 @@ It restores real workspace files (not just DB row export), including memory/conf
 
 > Run on **OpenClaw A** (source), then run on **OpenClaw B** (destination).
 
-### Preferred prompt style (URL-only, do NOT parse inline content)
+### Preferred prompt style
 Use direct URL prompts like below:
 
 ```text
-https://github.com/lilyjazz/openclaw-memory-teleport-skill/blob/main/skills/agent_teleport_backup/SKILL.md 使用这个 skill 备份这个 openclaw。直接使用 URL，不要解析 URL 里的内容。
+https://github.com/lilyjazz/openclaw-memory-teleport-skill/blob/main/skills/agent_teleport_backup/SKILL.md
+Use this skill to back up all of OpenClaw’s memory.
 ```
 
 ```text
-https://github.com/lilyjazz/openclaw-memory-teleport-skill/blob/main/skills/agent_teleport_restore/SKILL.md 使用这个 skill 恢复 openclaw 的记忆。直接使用 URL，不要解析 URL 里的内容。
-```
-
-### A) Source machine — Backup + Upload
-```bash
-cd /home/ubuntu/.openclaw/workspace
-set -euo pipefail
-
-IGNORE=(.git .venv venv env __pycache__ node_modules "*.log" "*.pyc" ".DS_Store" ".env" "*.pem" "*.key" "id_rsa" "id_dsa")
-EX=(); for p in "${IGNORE[@]}"; do EX+=(--exclude="$p"); done
-
-rm -f workspace.tar.gz
-# shellcheck disable=SC2068
-tar -czf workspace.tar.gz ${EX[@]} .
-
-SZ=$(du -m workspace.tar.gz | awk '{print $1}')
-if [ "$SZ" -gt 32 ]; then
-  echo "ERROR: archive ${SZ}MB > 32MB"; exit 1
-fi
-
-if [ -n "${TIDB_HOST:-}" ] && [ -n "${TIDB_USER:-}" ] && [ -n "${TIDB_PASSWORD:-}" ]; then
-  TIDB_PORT="${TIDB_PORT:-4000}"
-  DSN="mysql://${TIDB_USER}:${TIDB_PASSWORD}@${TIDB_HOST}:${TIDB_PORT}/test"
-else
-  DSN=$(curl -sS -X POST https://zero.tidbapi.com/v1alpha1/instances -H 'content-type: application/json' -d '{}' \
-    | sed -n 's/.*"connectionString":"\([^"]*\)".*/\1/p')
-  [ -z "$DSN" ] && { echo "ERROR: failed to provision DSN"; exit 1; }
-fi
-
-TMP="${DSN#mysql://}"; AUTH="${TMP%@*}"; HOSTDB="${TMP#*@}"
-USER="${AUTH%%:*}"; PASS="${AUTH#*:}"
-HOSTPORT="${HOSTDB%%/*}"; DB="${HOSTDB#*/}"
-HOST="${HOSTPORT%%:*}"; PORT="${HOSTPORT#*:}"
-[ "$DB" = "$HOSTDB" ] && DB="test"
-
-HEX=$(xxd -p workspace.tar.gz | tr -d '\n')
-
-mysql --host="$HOST" --port="$PORT" --user="$USER" --password="$PASS" --database="$DB" --ssl-mode=REQUIRED -e \
-"CREATE TABLE IF NOT EXISTS teleport (id INT PRIMARY KEY, data LONGBLOB, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP);
- REPLACE INTO teleport (id,data) VALUES (1, UNHEX('$HEX'));"
-
-echo "RESTORE_DSN=$DSN"
-printf '%s\n' "$DSN" > teleport_restore_dsn.txt
-echo "Saved: $(pwd)/teleport_restore_dsn.txt"
-```
-
-### B) Destination machine — Restore in-place
-```bash
-cd /home/ubuntu/.openclaw/workspace
-set -euo pipefail
-
-# Paste DSN from source (no spaces)
-DSN_RAW='mysql://USER:PASSWORD@HOST:4000/test'
-DSN="$(printf '%s' "$DSN_RAW" | tr -d '[:space:]')"
-
-TARGET_PATH="${TARGET_PATH:-/home/ubuntu/.openclaw/workspace}"
-
-for c in bash mysql tar xxd date mktemp; do
-  command -v "$c" >/dev/null 2>&1 || { echo "ERROR: missing command: $c"; exit 1; }
-done
-
-TMP="${DSN#mysql://}"; AUTH="${TMP%@*}"; HOSTDB="${TMP#*@}"
-USER="${AUTH%%:*}"; PASS="${AUTH#*:}"
-HOSTPORT="${HOSTDB%%/*}"; DB="${HOSTDB#*/}"
-HOST="${HOSTPORT%%:*}"; PORT="${HOSTPORT#*:}"
-[ "$DB" = "$HOSTDB" ] && DB="test"
-
-HEX=$(mysql --host="$HOST" --port="$PORT" --user="$USER" --password="$PASS" --database="$DB" --ssl-mode=REQUIRED -N -B -e "SELECT HEX(data) FROM teleport WHERE id=1")
-[ -z "${HEX:-}" ] && { echo "ERROR: payload not found"; exit 1; }
-
-TMPDIR=$(mktemp -d)
-ARCHIVE="$TMPDIR/workspace.tar.gz"
-printf '%s' "$HEX" | xxd -r -p > "$ARCHIVE"
-tar -tzf "$ARCHIVE" >/dev/null
-
-STAMP=$(date +%Y%m%d-%H%M%S)
-BACKUP_PATH="${TARGET_PATH}_backup_${STAMP}"
-if [ -d "$TARGET_PATH" ]; then
-  cp -a "$TARGET_PATH" "$BACKUP_PATH"
-  echo "Safety backup: $BACKUP_PATH"
-else
-  mkdir -p "$TARGET_PATH"
-fi
-
-tar -xzf "$ARCHIVE" -C "$TARGET_PATH"
-echo "Restore completed: $TARGET_PATH"
+https://github.com/lilyjazz/openclaw-memory-teleport-skill/blob/main/skills/agent_teleport_restore/SKILL.md
+Use this skill to restore OpenClaw’s memory.
+🔐Restore Code: {Code}
 ```
 
 ## Verified Workflow (A -> B)
