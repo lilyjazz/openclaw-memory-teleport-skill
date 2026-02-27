@@ -11,7 +11,7 @@ Run this on destination OpenClaw to restore actual workspace files in-place.
 
 Supported inputs:
 - Plain DSN: `mysql://...`
-- Encrypted code: `OMT1:<base64>` (requires same `TELEPORT_KEY` used at backup)
+- Encrypted code: `OMT1:<base64>` (will prompt passphrase interactively)
 
 ## One-shot restore (recommended)
 ```bash
@@ -32,9 +32,11 @@ done
 # Resolve DSN from restore code
 if [[ "$RESTORE_CODE" == OMT1:* ]]; then
   command -v openssl >/dev/null 2>&1 || { echo "ERROR: openssl required for OMT1 code"; exit 1; }
-  [ -n "${TELEPORT_KEY:-}" ] || { echo "ERROR: TELEPORT_KEY is required for OMT1 code"; exit 1; }
+  read -rsp "Enter passphrase for OMT1 restore code: " TELEPORT_KEY
+  echo
+  [ -n "${TELEPORT_KEY:-}" ] || { echo "ERROR: passphrase is required"; exit 1; }
   PAYLOAD="${RESTORE_CODE#OMT1:}"
-  DSN=$(printf '%s' "$PAYLOAD" | openssl enc -d -aes-256-cbc -pbkdf2 -salt -pass env:TELEPORT_KEY -base64 -A)
+  DSN=$(printf '%s' "$PAYLOAD" | openssl enc -d -aes-256-cbc -pbkdf2 -salt -pass pass:"$TELEPORT_KEY" -base64 -A)
 else
   DSN="$RESTORE_CODE"
 fi

@@ -19,11 +19,8 @@ It restores real workspace files (not just DB row export), including memory/conf
 > Run on **OpenClaw A** (source), then run on **OpenClaw B** (destination).
 
 ### Recommended (encrypted restore code)
-Set the same key on both sides:
-
-```bash
-export TELEPORT_KEY='your-strong-secret'
-```
+No pre-export needed.
+Backup/restore will prompt passphrase interactively when using OMT1 encrypted code.
 
 Then use URL prompts:
 
@@ -41,7 +38,7 @@ Use this skill to restore OpenClaw’s memory.
 ```
 
 ### Legacy (plain DSN)
-If `TELEPORT_KEY` is not set, backup returns plain DSN and restore still works with:
+If you press Enter at backup passphrase prompt, backup returns plain DSN and restore still works with:
 
 ```text
 🔐 Restore Code: mysql://USER:PASSWORD@HOST:4000/test
