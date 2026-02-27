@@ -5,7 +5,7 @@ Portable backup/restore skills for migrating OpenClaw workspace state across mac
 ## Overview
 This repo provides a shell-based migration flow:
 1. Backup on source machine
-2. Upload payload to TiDB/MySQL (`teleport` table)
+2. Upload payload to TiDB/MySQL (`teleport_parts` table)
 3. Restore in-place on destination machine
 
 It restores real workspace files (not just DB row export), including memory/config/skills.
@@ -21,6 +21,7 @@ It restores real workspace files (not just DB row export), including memory/conf
 ### Recommended (extreme simplicity)
 No extra setup, no passphrase input, just URL prompts.
 Backup returns one restore code (`OCMT1-...`) and restore accepts it directly.
+If archive is larger than 10MB, backup auto-splits into multiple DB parts; restore auto-downloads all parts and reassembles.
 
 ```text
 # A: backup

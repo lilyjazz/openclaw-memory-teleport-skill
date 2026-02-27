@@ -1,6 +1,6 @@
 ---
 name: agent-teleport-restore
-description: Restore full OpenClaw core/workspace files in-place from TiDB/MySQL teleport payload using one restore code (OCMT1) or plain DSN. Use on destination machine after migration.
+description: Restore full OpenClaw core/workspace files in-place from TiDB/MySQL chunked teleport payload using one restore code (OCMT1) or plain DSN.
 ---
 
 # Title
@@ -10,16 +10,15 @@ Agent Teleport Restore (Destination OpenClaw, In-Place)
 Run this on destination OpenClaw to restore actual workspace files in-place.
 
 Supported input:
-- Preferred one-code format: `OCMT1-...`
-- Backward compatible plain DSN: `mysql://...`
+- Preferred one-code format: `OCMT1-...` (contains DSN + transfer_id)
+- Backward compatible plain DSN: `mysql://...` (restores latest transfer)
 
 ## One-shot restore (recommended)
 ```bash
 set -euo pipefail
 
-# Paste restore code (preferred):
-# OCMT1-...
-# or plain DSN for compatibility: mysql://USER:PASSWORD@HOST:4000/test
+# Paste restore code (preferred): OCMT1-...
+# Or plain DSN for compatibility: mysql://USER:PASSWORD@HOST:4000/test
 RESTORE_CODE_RAW='OCMT1-PASTE_CODE_HERE'
 RESTORE_CODE="$(printf '%s' "$RESTORE_CODE_RAW" | tr -d '[:space:]')"
 
@@ -29,14 +28,16 @@ for c in bash tar date mktemp base64 node npx; do
   command -v "$c" >/dev/null 2>&1 || { echo "ERROR: missing command: $c"; exit 1; }
 done
 
+TRANSFER_ID=""
 if [[ "$RESTORE_CODE" == OCMT1-* ]]; then
-  command -v base64 >/dev/null 2>&1 || { echo "ERROR: missing command: base64"; exit 1; }
   PAYLOAD="${RESTORE_CODE#OCMT1-}"
   B64=$(printf '%s' "$PAYLOAD" | tr '-_' '+/')
   PAD=$(( (4 - ${#B64} % 4) % 4 ))
   [ "$PAD" -eq 2 ] && B64="${B64}=="
   [ "$PAD" -eq 1 ] && B64="${B64}="
-  DSN=$(printf '%s' "$B64" | base64 -d 2>/dev/null || true)
+  DEC=$(printf '%s' "$B64" | base64 -d 2>/dev/null || true)
+  DSN="${DEC%%|*}"
+  [ "$DEC" != "$DSN" ] && TRANSFER_ID="${DEC#*|}"
 else
   DSN="$RESTORE_CODE"
 fi
@@ -50,12 +51,13 @@ TMPDIR=$(mktemp -d)
 ARCHIVE="$TMPDIR/workspace.tar.gz"
 
 # Fetch payload via Node (no mysql CLI required)
-DSN="$DSN" ARCHIVE_PATH="$ARCHIVE" npx -y -p mysql2 node - <<'NODE'
+DSN="$DSN" TRANSFER_ID="$TRANSFER_ID" ARCHIVE_PATH="$ARCHIVE" npx -y -p mysql2 node - <<'NODE'
 const fs = require('fs');
 const mysql = require('mysql2/promise');
 
 (async () => {
   const dsn = process.env.DSN;
+  let transferId = process.env.TRANSFER_ID || '';
   const archivePath = process.env.ARCHIVE_PATH;
   const u = new URL(dsn);
   const db = (u.pathname || '/test').replace(/^\//,'') || 'test';
@@ -70,9 +72,50 @@ const mysql = require('mysql2/promise');
   });
 
   try {
+    // Prefer new chunked table
+    const [tableRows] = await conn.query("SHOW TABLES LIKE 'teleport_parts'");
+    if (tableRows.length) {
+      if (!transferId) {
+        const [latest] = await conn.query('SELECT transfer_id FROM teleport_parts ORDER BY created_at DESC LIMIT 1');
+        if (!latest.length) {
+          console.error('ERROR: no transfer found in teleport_parts');
+          process.exit(1);
+        }
+        transferId = latest[0].transfer_id;
+      }
+
+      const [rows] = await conn.query(
+        'SELECT part_no, total_parts, data FROM teleport_parts WHERE transfer_id=? ORDER BY part_no ASC',
+        [transferId]
+      );
+
+      if (!rows.length) {
+        console.error('ERROR: transfer_id not found in teleport_parts');
+        process.exit(1);
+      }
+
+      const total = rows[0].total_parts;
+      if (rows.length !== total) {
+        console.error(`ERROR: missing parts (got ${rows.length}, expected ${total})`);
+        process.exit(1);
+      }
+
+      const bufs = [];
+      for (let i = 0; i < rows.length; i++) {
+        if (rows[i].part_no !== i + 1) {
+          console.error(`ERROR: part order mismatch at index ${i}`);
+          process.exit(1);
+        }
+        bufs.push(rows[i].data);
+      }
+      fs.writeFileSync(archivePath, Buffer.concat(bufs));
+      return;
+    }
+
+    // Backward compatibility: old single-row table
     const [rows] = await conn.query('SELECT data FROM teleport WHERE id=1');
     if (!rows.length || !rows[0].data) {
-      console.error('ERROR: teleport payload not found (invalid/expired code, wrong DB, or table empty)');
+      console.error('ERROR: payload not found (invalid/expired code, wrong DB, or table empty)');
       process.exit(1);
     }
     fs.writeFileSync(archivePath, rows[0].data);
@@ -81,6 +124,7 @@ const mysql = require('mysql2/promise');
   }
 })();
 NODE
+
 tar -tzf "$ARCHIVE" >/dev/null || { echo "ERROR: invalid/corrupted archive"; exit 1; }
 
 STAMP=$(date +%Y%m%d-%H%M%S)
@@ -103,6 +147,6 @@ echo "Target path: $TARGET_PATH"
 - `node`, `npx` (uses `mysql2` via `npx -p mysql2`)
 
 ## Notes
-- Restores files in-place (not CSV/JSON table export).
+- Restores files in-place (not CSV/JSON export).
+- Supports multi-part archives automatically.
 - Use `TARGET_PATH=/your/path` to override destination.
-- Keep restore code private.

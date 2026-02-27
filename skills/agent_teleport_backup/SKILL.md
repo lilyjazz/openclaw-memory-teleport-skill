@@ -1,17 +1,18 @@
 ---
 name: agent-teleport-backup
-description: Create a portable OpenClaw workspace backup and upload it to TiDB/MySQL as a restore payload. Use on the source machine before migration.
+description: Create a portable OpenClaw workspace backup and upload it to TiDB/MySQL as chunked payload parts. Use on the source machine before migration.
 ---
 
 # Title
 Agent Teleport Backup (Source OpenClaw)
 
 ## Description
-Run this on the source OpenClaw. It creates `workspace.tar.gz`, stores it in TiDB/MySQL `teleport.data` (LONGBLOB), and prints a single restore code.
+Run this on source OpenClaw. It creates `workspace.tar.gz`, uploads it to TiDB/MySQL, and prints one restore code.
 
 - Zero-input UX.
-- Outputs one code: `OCMT1-...` (DSN transformed in-skill).
-- This is obfuscation for UX/readability, not cryptographic security.
+- Outputs one code: `OCMT1-...`.
+- Default chunk upload: if archive > 10MB, split into multiple parts and upload all parts.
+- This code format is for UX/readability (obfuscation), not cryptographic security.
 
 ## Steps (source machine)
 ```bash
@@ -24,11 +25,6 @@ rm -f workspace.tar.gz
 # shellcheck disable=SC2068
 tar -czf workspace.tar.gz ${EX[@]} .
 
-SZ=$(du -m workspace.tar.gz | awk '{print $1}')
-if [ "$SZ" -gt 32 ]; then
-  echo "ERROR: archive ${SZ}MB > 32MB. Clean cache/build files first."; exit 1
-fi
-
 if [ -n "${TIDB_HOST:-}" ] && [ -n "${TIDB_USER:-}" ] && [ -n "${TIDB_PASSWORD:-}" ]; then
   TIDB_PORT="${TIDB_PORT:-4000}"
   DSN="mysql://${TIDB_USER}:${TIDB_PASSWORD}@${TIDB_HOST}:${TIDB_PORT}/test"
@@ -39,7 +35,7 @@ else
 fi
 
 # Upload archive to TiDB/MySQL via Node (no mysql CLI required)
-DSN="$DSN" ARCHIVE_PATH="$(pwd)/workspace.tar.gz" npx -y -p mysql2 node - <<'NODE'
+UPLOAD_OUT=$(DSN="$DSN" ARCHIVE_PATH="$(pwd)/workspace.tar.gz" npx -y -p mysql2 node - <<'NODE'
 const fs = require('fs');
 const mysql = require('mysql2/promise');
 
@@ -59,24 +55,53 @@ const mysql = require('mysql2/promise');
   });
 
   try {
-    await conn.query('CREATE TABLE IF NOT EXISTS teleport (id INT PRIMARY KEY, data LONGBLOB, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)');
-    const blob = fs.readFileSync(archivePath);
-    await conn.query('REPLACE INTO teleport (id, data) VALUES (1, ?)', [blob]);
+    await conn.query(`CREATE TABLE IF NOT EXISTS teleport_parts (
+      transfer_id VARCHAR(64) NOT NULL,
+      part_no INT NOT NULL,
+      total_parts INT NOT NULL,
+      data LONGBLOB NOT NULL,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      PRIMARY KEY (transfer_id, part_no)
+    )`);
+
+    const buf = fs.readFileSync(archivePath);
+    const CHUNK = 10 * 1024 * 1024; // 10MB
+    const totalParts = Math.ceil(buf.length / CHUNK) || 1;
+    const transferId = `tp_${Date.now().toString(36)}_${Math.random().toString(36).slice(2,8)}`;
+
+    for (let i = 0; i < totalParts; i++) {
+      const part = buf.subarray(i * CHUNK, Math.min((i + 1) * CHUNK, buf.length));
+      await conn.query(
+        'INSERT INTO teleport_parts (transfer_id, part_no, total_parts, data) VALUES (?, ?, ?, ?)',
+        [transferId, i + 1, totalParts, part]
+      );
+    }
+
+    process.stdout.write(`TRANSFER_ID=${transferId}\nPARTS=${totalParts}\nSIZE_BYTES=${buf.length}\n`);
   } finally {
     await conn.end();
   }
 })();
 NODE
+)
 
-# Convert DSN to one restore code (base64url + prefix)
-CODE_PAYLOAD=$(printf '%s' "$DSN" | base64 | tr -d '\n' | tr '+/' '-_' | tr -d '=')
+TRANSFER_ID=$(printf '%s\n' "$UPLOAD_OUT" | sed -n 's/^TRANSFER_ID=//p')
+PARTS=$(printf '%s\n' "$UPLOAD_OUT" | sed -n 's/^PARTS=//p')
+SIZE_BYTES=$(printf '%s\n' "$UPLOAD_OUT" | sed -n 's/^SIZE_BYTES=//p')
+[ -z "$TRANSFER_ID" ] && { echo "ERROR: failed to get transfer_id"; exit 1; }
+
+# Convert DSN+transfer to one restore code (base64url + prefix)
+RAW="${DSN}|${TRANSFER_ID}"
+CODE_PAYLOAD=$(printf '%s' "$RAW" | base64 | tr -d '\n' | tr '+/' '-_' | tr -d '=')
 RESTORE_CODE="OCMT1-${CODE_PAYLOAD}"
 
 echo "RESTORE_CODE=$RESTORE_CODE"
+echo "TRANSFER_ID=$TRANSFER_ID"
+echo "PARTS=$PARTS"
+echo "SIZE_BYTES=$SIZE_BYTES"
 printf '%s\n' "$RESTORE_CODE" > teleport_restore_code.txt
 echo "Saved restore code: $(pwd)/teleport_restore_code.txt"
 
-# Suggested handoff message for OpenClaw B (copy/paste ready)
 echo
 echo "# B: restore"
 echo "https://github.com/lilyjazz/openclaw-memory-teleport-skill/blob/main/skills/agent_teleport_restore/SKILL.md"
@@ -85,9 +110,9 @@ echo "🔐 Restore Code: $RESTORE_CODE"
 ```
 
 ## Runtime requirements
-- `bash`, `tar`, `curl`, `base64`
+- `bash`, `tar`, `curl`, `base64`, `sed`
 - `node`, `npx` (uses `mysql2` via `npx -p mysql2`)
 
 ## Security
 - DSN is restore key. Keep private.
-- This mode prioritizes simplicity over cryptographic secrecy; treat DSN as secret.
+- Code format is not strong encryption.
