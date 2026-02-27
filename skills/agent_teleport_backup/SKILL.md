@@ -7,28 +7,74 @@ description: Create a portable OpenClaw workspace backup and upload it to TiDB/M
 Agent Teleport Backup (Source OpenClaw)
 
 ## Description
-Run this on source OpenClaw. It creates `workspace.tar.gz`, uploads it to TiDB/MySQL, and prints one restore code.
+Run this on source OpenClaw. It previews workspace size, asks user to confirm backup scope, creates `workspace.tar.gz`, uploads to TiDB/MySQL, and prints one restore code.
 
-- Zero-input UX.
-- Outputs one restore code: `RESTORE-...`.
+- Zero-input for credentials when env is set / auto-provision is available.
+- Interactive scope confirmation before backup.
+- Outputs one code: `RESTORE-...`.
 - Default chunk upload: if archive > 10MB, split into multiple parts and upload all parts.
-- This code format is for UX/readability, not cryptographic security.
+- Code format is for UX/readability, not cryptographic security.
 
 ## Steps (source machine)
 ```bash
 set -euo pipefail
 
-echo "[1/7] Preparing backup..."
+echo "[1/9] Preparing backup..."
+cd /home/ubuntu/.openclaw/workspace
+
 IGNORE=(.git .venv venv env __pycache__ node_modules "*.log" "*.pyc" ".DS_Store" ".env" "*.pem" "*.key" "id_rsa" "id_dsa")
-EX=(); for p in "${IGNORE[@]}"; do EX+=(--exclude="$p"); done
 
-echo "[2/7] Compressing workspace..."
+echo "[2/9] Scanning workspace size (folders only)..."
+TOTAL=$(du -sh . | awk '{print $1}')
+echo "Workspace total: $TOTAL"
+echo
+echo "Top folders by size:"
+du -h --max-depth=1 . 2>/dev/null | sort -hr | head -n 20
+echo
+
+echo "Choose backup scope:"
+echo "  1) full  - entire workspace (default)"
+echo "  2) core  - AGENTS.md SOUL.md USER.md MEMORY.md TOOLS.md IDENTITY.md HEARTBEAT.md memory/ skills/"
+echo "  3) custom - enter relative paths (space-separated)"
+read -rp "Select [1/2/3] (default 1): " SCOPE_CHOICE
+SCOPE_CHOICE="${SCOPE_CHOICE:-1}"
+
+SOURCES=()
+case "$SCOPE_CHOICE" in
+  2)
+    for p in AGENTS.md SOUL.md USER.md MEMORY.md TOOLS.md IDENTITY.md HEARTBEAT.md memory skills; do
+      [ -e "$p" ] && SOURCES+=("$p")
+    done
+    [ ${#SOURCES[@]} -eq 0 ] && { echo "ERROR: core scope resolved to empty set"; exit 1; }
+    ;;
+  3)
+    read -rp "Enter relative paths to include: " -a USER_PATHS
+    [ ${#USER_PATHS[@]} -eq 0 ] && { echo "ERROR: no custom paths provided"; exit 1; }
+    for p in "${USER_PATHS[@]}"; do
+      [ -e "$p" ] || { echo "ERROR: path not found: $p"; exit 1; }
+      SOURCES+=("$p")
+    done
+    ;;
+  *)
+    SOURCES=(.)
+    ;;
+esac
+
+echo "Selected sources: ${SOURCES[*]}"
+
+# Build tar exclude args
+EX=()
+for p in "${IGNORE[@]}"; do EX+=(--exclude="$p"); done
+
+echo "[3/9] Compressing selected scope..."
 rm -f workspace.tar.gz
-# shellcheck disable=SC2068
-tar -czf workspace.tar.gz ${EX[@]} .
+# shellcheck disable=SC2068,SC2068
+tar -czf workspace.tar.gz ${EX[@]} "${SOURCES[@]}"
 
-echo "[3/7] Resolving upload DSN..."
+SZ=$(du -m workspace.tar.gz | awk '{print $1}')
+echo "Archive size: ${SZ}MB"
 
+echo "[4/9] Resolving upload DSN..."
 if [ -n "${TIDB_HOST:-}" ] && [ -n "${TIDB_USER:-}" ] && [ -n "${TIDB_PASSWORD:-}" ]; then
   TIDB_PORT="${TIDB_PORT:-4000}"
   DSN="mysql://${TIDB_USER}:${TIDB_PASSWORD}@${TIDB_HOST}:${TIDB_PORT}/test"
@@ -38,8 +84,7 @@ else
   [ -z "$DSN" ] && { echo "ERROR: failed to provision DSN"; exit 1; }
 fi
 
-echo "[4/7] Uploading archive to TiDB/MySQL (chunked if >10MB)..."
-# Upload archive to TiDB/MySQL via Node (no mysql CLI required)
+echo "[5/9] Uploading archive to TiDB/MySQL (chunked if >10MB)..."
 UPLOAD_OUT=$(DSN="$DSN" ARCHIVE_PATH="$(pwd)/workspace.tar.gz" npx -y -p mysql2 node - <<'NODE'
 const fs = require('fs');
 const mysql = require('mysql2/promise');
@@ -91,18 +136,18 @@ const mysql = require('mysql2/promise');
 NODE
 )
 
-echo "[5/7] Finalizing transfer metadata..."
+echo "[6/9] Finalizing transfer metadata..."
 TRANSFER_ID=$(printf '%s\n' "$UPLOAD_OUT" | sed -n 's/^TRANSFER_ID=//p')
 PARTS=$(printf '%s\n' "$UPLOAD_OUT" | sed -n 's/^PARTS=//p')
 SIZE_BYTES=$(printf '%s\n' "$UPLOAD_OUT" | sed -n 's/^SIZE_BYTES=//p')
 [ -z "$TRANSFER_ID" ] && { echo "ERROR: failed to get transfer_id"; exit 1; }
 
-echo "[6/7] Generating restore code..."
-# Convert DSN+transfer to one restore code (base64url + prefix)
+echo "[7/9] Generating restore code..."
 RAW="${DSN}|${TRANSFER_ID}"
 CODE_PAYLOAD=$(printf '%s' "$RAW" | base64 | tr -d '\n' | tr '+/' '-_' | tr -d '=')
 RESTORE_CODE="RESTORE-${CODE_PAYLOAD}"
 
+echo "[8/9] Writing local outputs..."
 echo "RESTORE_CODE=$RESTORE_CODE"
 echo "TRANSFER_ID=$TRANSFER_ID"
 echo "PARTS=$PARTS"
@@ -110,7 +155,7 @@ echo "SIZE_BYTES=$SIZE_BYTES"
 printf '%s\n' "$RESTORE_CODE" > teleport_restore_code.txt
 echo "Saved restore code: $(pwd)/teleport_restore_code.txt"
 
-echo "[7/7] Backup complete."
+echo "[9/9] Backup complete."
 echo
 echo "# B: restore"
 echo "https://github.com/lilyjazz/openclaw-memory-teleport-skill/blob/main/skills/agent_teleport_restore/SKILL.md"
@@ -119,7 +164,7 @@ echo "🔐 Restore Code: $RESTORE_CODE"
 ```
 
 ## Runtime requirements
-- `bash`, `tar`, `curl`, `base64`, `sed`
+- `bash`, `tar`, `curl`, `base64`, `sed`, `du`, `sort`
 - `node`, `npx` (uses `mysql2` via `npx -p mysql2`)
 
 ## Security
