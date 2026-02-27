@@ -27,7 +27,7 @@ If archive is larger than 10MB, backup auto-splits into multiple DB parts; resto
 ```text
 # A: backup
 https://github.com/lilyjazz/openclaw-memory-teleport-skill/blob/main/skills/agent_teleport_backup/SKILL.md
-Use this skill to back up all of OpenClaw’s memory.
+Use this skill to back up OpenClaw’s memory.
 After backup, output the restore handoff with the real code for OpenClaw B.
 ```
 
