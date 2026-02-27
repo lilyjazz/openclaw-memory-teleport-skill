@@ -22,11 +22,13 @@ It restores real workspace files (not just DB row export), including memory/conf
 Use direct URL prompts like below:
 
 ```text
+# back up memory
 https://github.com/lilyjazz/openclaw-memory-teleport-skill/blob/main/skills/agent_teleport_backup/SKILL.md
 Use this skill to back up all of OpenClaw’s memory.
 ```
 
 ```text
+# restore memory
 https://github.com/lilyjazz/openclaw-memory-teleport-skill/blob/main/skills/agent_teleport_restore/SKILL.md
 Use this skill to restore OpenClaw’s memory.
 🔐Restore Code: {Code}
