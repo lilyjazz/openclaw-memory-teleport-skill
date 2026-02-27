@@ -20,7 +20,7 @@ It restores real workspace files (not just DB row export), including memory/conf
 
 ### Recommended (extreme simplicity)
 No extra setup, no passphrase input, just URL prompts.
-Backup returns one restore code (`OCMT1-...`) and restore accepts it directly.
+Backup returns one restore code (`RESTORE-...`) and restore accepts it directly.
 If archive is larger than 10MB, backup auto-splits into multiple DB parts; restore auto-downloads all parts and reassembles.
 
 ```text
@@ -34,7 +34,7 @@ After backup, output the restore handoff with the real code for OpenClaw B.
 # B: restore
 https://github.com/lilyjazz/openclaw-memory-teleport-skill/blob/main/skills/agent_teleport_restore/SKILL.md
 Use this skill to restore OpenClaw’s memory.
-🔐 Restore Code: OCMT1-...
+🔐 Restore Code: RESTORE-...
 ```
 
 ## Verified Workflow (A -> B)

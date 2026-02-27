@@ -1,6 +1,6 @@
 ---
 name: agent-teleport-restore
-description: Restore full OpenClaw core/workspace files in-place from TiDB/MySQL chunked teleport payload using one restore code (OCMT1) or plain DSN.
+description: Restore full OpenClaw core/workspace files in-place from TiDB/MySQL chunked teleport payload using one restore code (RESTORE) or plain DSN.
 ---
 
 # Title
@@ -10,16 +10,16 @@ Agent Teleport Restore (Destination OpenClaw, In-Place)
 Run this on destination OpenClaw to restore actual workspace files in-place.
 
 Supported input:
-- Preferred one-code format: `OCMT1-...` (contains DSN + transfer_id)
+- Preferred one-code format: `RESTORE-...` (contains DSN + transfer_id)
 - Backward compatible plain DSN: `mysql://...` (restores latest transfer)
 
 ## One-shot restore (recommended)
 ```bash
 set -euo pipefail
 
-# Paste restore code (preferred): OCMT1-...
+# Paste restore code (preferred): RESTORE-...
 # Or plain DSN for compatibility: mysql://USER:PASSWORD@HOST:4000/test
-RESTORE_CODE_RAW='OCMT1-PASTE_CODE_HERE'
+RESTORE_CODE_RAW='RESTORE-PASTE_CODE_HERE'
 RESTORE_CODE="$(printf '%s' "$RESTORE_CODE_RAW" | tr -d '[:space:]')"
 
 TARGET_PATH="${TARGET_PATH:-/home/ubuntu/.openclaw/workspace}"
@@ -29,8 +29,8 @@ for c in bash tar date mktemp base64 node npx; do
 done
 
 TRANSFER_ID=""
-if [[ "$RESTORE_CODE" == OCMT1-* ]]; then
-  PAYLOAD="${RESTORE_CODE#OCMT1-}"
+if [[ "$RESTORE_CODE" == RESTORE-* ]]; then
+  PAYLOAD="${RESTORE_CODE#RESTORE-}"
   B64=$(printf '%s' "$PAYLOAD" | tr '-_' '+/')
   PAD=$(( (4 - ${#B64} % 4) % 4 ))
   [ "$PAD" -eq 2 ] && B64="${B64}=="

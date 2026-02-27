@@ -10,9 +10,9 @@ Agent Teleport Backup (Source OpenClaw)
 Run this on source OpenClaw. It creates `workspace.tar.gz`, uploads it to TiDB/MySQL, and prints one restore code.
 
 - Zero-input UX.
-- Outputs one code: `OCMT1-...`.
+- Outputs one restore code: `RESTORE-...`.
 - Default chunk upload: if archive > 10MB, split into multiple parts and upload all parts.
-- This code format is for UX/readability (obfuscation), not cryptographic security.
+- This code format is for UX/readability, not cryptographic security.
 
 ## Steps (source machine)
 ```bash
@@ -93,7 +93,7 @@ SIZE_BYTES=$(printf '%s\n' "$UPLOAD_OUT" | sed -n 's/^SIZE_BYTES=//p')
 # Convert DSN+transfer to one restore code (base64url + prefix)
 RAW="${DSN}|${TRANSFER_ID}"
 CODE_PAYLOAD=$(printf '%s' "$RAW" | base64 | tr -d '\n' | tr '+/' '-_' | tr -d '=')
-RESTORE_CODE="OCMT1-${CODE_PAYLOAD}"
+RESTORE_CODE="RESTORE-${CODE_PAYLOAD}"
 
 echo "RESTORE_CODE=$RESTORE_CODE"
 echo "TRANSFER_ID=$TRANSFER_ID"
