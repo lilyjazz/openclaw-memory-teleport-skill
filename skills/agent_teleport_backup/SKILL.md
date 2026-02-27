@@ -33,11 +33,13 @@ cd /home/ubuntu/.openclaw/workspace
 du -h --max-depth=1 . 2>/dev/null | sort -hr | head -n 20
 ```
 
-## Step 3 — Confirm scope in chat
-Use one of:
+## Step 3 — Confirm scope in chat (MANDATORY, no default)
+User must explicitly choose one scope before any backup run:
 - `SCOPE=full`
 - `SCOPE=core`
 - `SCOPE=custom` with `CUSTOM_PATHS="path1 path2 ..."`
+
+If user does not choose, stop and ask again. Do not continue.
 
 ## Step 4 — Build archive
 ```bash
@@ -45,8 +47,9 @@ set -euo pipefail
 IGNORE=(.git .venv venv env __pycache__ node_modules "*.log" "*.pyc" ".DS_Store" ".env" "*.pem" "*.key" "id_rsa" "id_dsa")
 EX=(); for p in "${IGNORE[@]}"; do EX+=(--exclude="$p"); done
 
-SCOPE="${SCOPE:-full}"
+SCOPE="${SCOPE:-}"
 CUSTOM_PATHS="${CUSTOM_PATHS:-}"
+[ -n "$SCOPE" ] || { echo "ERROR: SCOPE is required. Choose full/core/custom in chat first."; exit 1; }
 SOURCES=()
 case "$SCOPE" in
   core)
@@ -61,8 +64,10 @@ case "$SCOPE" in
     for p in "${USER_PATHS[@]}"; do [ -e "$p" ] || { echo "ERROR: path not found: $p"; exit 1; }; done
     SOURCES=("${USER_PATHS[@]}")
     ;;
+  full)
+    SOURCES=(.) ;;
   *)
-    SCOPE="full"; SOURCES=(.) ;;
+    echo "ERROR: invalid SCOPE '$SCOPE'. Must be full/core/custom"; exit 1 ;;
 esac
 
 rm -f workspace.tar.gz
