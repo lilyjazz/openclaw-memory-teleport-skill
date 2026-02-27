@@ -18,12 +18,16 @@ Run this on source OpenClaw. It creates `workspace.tar.gz`, uploads it to TiDB/M
 ```bash
 set -euo pipefail
 
+echo "[1/7] Preparing backup..."
 IGNORE=(.git .venv venv env __pycache__ node_modules "*.log" "*.pyc" ".DS_Store" ".env" "*.pem" "*.key" "id_rsa" "id_dsa")
 EX=(); for p in "${IGNORE[@]}"; do EX+=(--exclude="$p"); done
 
+echo "[2/7] Compressing workspace..."
 rm -f workspace.tar.gz
 # shellcheck disable=SC2068
 tar -czf workspace.tar.gz ${EX[@]} .
+
+echo "[3/7] Resolving upload DSN..."
 
 if [ -n "${TIDB_HOST:-}" ] && [ -n "${TIDB_USER:-}" ] && [ -n "${TIDB_PASSWORD:-}" ]; then
   TIDB_PORT="${TIDB_PORT:-4000}"
@@ -34,6 +38,7 @@ else
   [ -z "$DSN" ] && { echo "ERROR: failed to provision DSN"; exit 1; }
 fi
 
+echo "[4/7] Uploading archive to TiDB/MySQL (chunked if >10MB)..."
 # Upload archive to TiDB/MySQL via Node (no mysql CLI required)
 UPLOAD_OUT=$(DSN="$DSN" ARCHIVE_PATH="$(pwd)/workspace.tar.gz" npx -y -p mysql2 node - <<'NODE'
 const fs = require('fs');
@@ -75,6 +80,7 @@ const mysql = require('mysql2/promise');
         'INSERT INTO teleport_parts (transfer_id, part_no, total_parts, data) VALUES (?, ?, ?, ?)',
         [transferId, i + 1, totalParts, part]
       );
+      process.stderr.write(`[upload] part ${i + 1}/${totalParts}\n`);
     }
 
     process.stdout.write(`TRANSFER_ID=${transferId}\nPARTS=${totalParts}\nSIZE_BYTES=${buf.length}\n`);
@@ -85,11 +91,13 @@ const mysql = require('mysql2/promise');
 NODE
 )
 
+echo "[5/7] Finalizing transfer metadata..."
 TRANSFER_ID=$(printf '%s\n' "$UPLOAD_OUT" | sed -n 's/^TRANSFER_ID=//p')
 PARTS=$(printf '%s\n' "$UPLOAD_OUT" | sed -n 's/^PARTS=//p')
 SIZE_BYTES=$(printf '%s\n' "$UPLOAD_OUT" | sed -n 's/^SIZE_BYTES=//p')
 [ -z "$TRANSFER_ID" ] && { echo "ERROR: failed to get transfer_id"; exit 1; }
 
+echo "[6/7] Generating restore code..."
 # Convert DSN+transfer to one restore code (base64url + prefix)
 RAW="${DSN}|${TRANSFER_ID}"
 CODE_PAYLOAD=$(printf '%s' "$RAW" | base64 | tr -d '\n' | tr '+/' '-_' | tr -d '=')
@@ -102,6 +110,7 @@ echo "SIZE_BYTES=$SIZE_BYTES"
 printf '%s\n' "$RESTORE_CODE" > teleport_restore_code.txt
 echo "Saved restore code: $(pwd)/teleport_restore_code.txt"
 
+echo "[7/7] Backup complete."
 echo
 echo "# B: restore"
 echo "https://github.com/lilyjazz/openclaw-memory-teleport-skill/blob/main/skills/agent_teleport_restore/SKILL.md"

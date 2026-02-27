@@ -17,6 +17,7 @@ Supported input:
 ```bash
 set -euo pipefail
 
+echo "[1/7] Preparing restore..."
 # Paste restore code (preferred): RESTORE-...
 # Or plain DSN for compatibility: mysql://USER:PASSWORD@HOST:4000/test
 RESTORE_CODE_RAW='RESTORE-PASTE_CODE_HERE'
@@ -28,6 +29,7 @@ for c in bash tar date mktemp base64 node npx; do
   command -v "$c" >/dev/null 2>&1 || { echo "ERROR: missing command: $c"; exit 1; }
 done
 
+echo "[2/7] Decoding restore code..."
 TRANSFER_ID=""
 if [[ "$RESTORE_CODE" == RESTORE-* ]]; then
   PAYLOAD="${RESTORE_CODE#RESTORE-}"
@@ -47,9 +49,11 @@ case "$DSN" in
   * ) echo "ERROR: invalid restore code / DSN"; exit 1 ;;
 esac
 
+echo "[3/7] Preparing temp workspace..."
 TMPDIR=$(mktemp -d)
 ARCHIVE="$TMPDIR/workspace.tar.gz"
 
+echo "[4/7] Downloading payload parts from TiDB/MySQL..."
 # Fetch payload via Node (no mysql CLI required)
 DSN="$DSN" TRANSFER_ID="$TRANSFER_ID" ARCHIVE_PATH="$ARCHIVE" npx -y -p mysql2 node - <<'NODE'
 const fs = require('fs');
@@ -107,6 +111,7 @@ const mysql = require('mysql2/promise');
           process.exit(1);
         }
         bufs.push(rows[i].data);
+        process.stderr.write(`[download] part ${i + 1}/${rows.length}\n`);
       }
       fs.writeFileSync(archivePath, Buffer.concat(bufs));
       return;
@@ -125,8 +130,10 @@ const mysql = require('mysql2/promise');
 })();
 NODE
 
+echo "[5/7] Verifying archive integrity..."
 tar -tzf "$ARCHIVE" >/dev/null || { echo "ERROR: invalid/corrupted archive"; exit 1; }
 
+echo "[6/7] Creating safety backup..."
 STAMP=$(date +%Y%m%d-%H%M%S)
 BACKUP_PATH="${TARGET_PATH}_backup_${STAMP}"
 if [ -d "$TARGET_PATH" ]; then
@@ -136,6 +143,7 @@ else
   mkdir -p "$TARGET_PATH"
 fi
 
+echo "[7/7] Extracting archive to target path..."
 tar -xzf "$ARCHIVE" -C "$TARGET_PATH"
 
 echo "Restore completed."
