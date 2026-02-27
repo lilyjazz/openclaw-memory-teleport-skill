@@ -147,3 +147,9 @@ https://github.com/lilyjazz/openclaw-memory-teleport-skill/blob/main/skills/agen
 Use this skill to restore OpenClaw’s memory.
 🔐 Restore Code: <real code>
 ```
+
+## Failure retry index (backup)
+- Fail at **Step 4 (build archive)**: fix scope/path, rerun Step 4.
+- Fail at **Step 5 (get DSN)**: check network/TiDB env, rerun Step 5.
+- Fail at **Step 6 (upload)**: rerun Step 6 only (uses existing `workspace.tar.gz` and `.teleport_dsn.tmp`).
+- Fail at **Step 7 (code generation)**: rerun Step 7 only.

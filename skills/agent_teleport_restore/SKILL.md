@@ -32,6 +32,7 @@ Restore failed.
 ## Step 1 — Set target path
 ```bash
 TARGET_PATH="${TARGET_PATH:-/home/ubuntu/.openclaw/workspace}"
+printf '%s\n' "$TARGET_PATH" > .teleport_target.tmp
 echo "$TARGET_PATH"
 ```
 
@@ -39,12 +40,14 @@ echo "$TARGET_PATH"
 ```bash
 RESTORE_CODE_RAW='RESTORE-PASTE_CODE_HERE'
 RESTORE_CODE="$(printf '%s' "$RESTORE_CODE_RAW" | tr -d '[:space:]')"
+printf '%s\n' "$RESTORE_CODE" > .teleport_code.tmp
 echo "Code loaded"
 ```
 
 ## Step 3 — Decode restore code to DSN + transfer id
 ```bash
 set -euo pipefail
+RESTORE_CODE="$(cat .teleport_code.tmp)"
 TRANSFER_ID=""
 if [[ "$RESTORE_CODE" == RESTORE-* ]]; then
   PAYLOAD="${RESTORE_CODE#RESTORE-}"
@@ -108,10 +111,12 @@ const mysql = require('mysql2/promise');
   } finally { await conn.end(); }
 })();
 NODE
+printf '%s\n' "$ARCHIVE" > .teleport_archive.tmp
 ```
 
 ## Step 5 — Verify archive
 ```bash
+ARCHIVE="$(cat .teleport_archive.tmp)"
 tar -tzf "$ARCHIVE" >/dev/null
 echo "Archive OK: $ARCHIVE"
 ```
@@ -119,6 +124,7 @@ echo "Archive OK: $ARCHIVE"
 ## Step 6 — Safety backup target path
 ```bash
 set -euo pipefail
+TARGET_PATH="$(cat .teleport_target.tmp)"
 STAMP=$(date +%Y%m%d-%H%M%S)
 BACKUP_PATH="${TARGET_PATH}_backup_${STAMP}"
 if [ -d "$TARGET_PATH" ]; then
@@ -131,9 +137,18 @@ echo "Safety backup: $BACKUP_PATH"
 
 ## Step 7 — Extract to target
 ```bash
+TARGET_PATH="$(cat .teleport_target.tmp)"
+ARCHIVE="$(cat .teleport_archive.tmp)"
 tar -xzf "$ARCHIVE" -C "$TARGET_PATH"
 echo "Restore completed: $TARGET_PATH"
 ```
 
 ## Step 8 — Post chat summary
 Use the success/failure template from this file.
+
+## Failure retry index (restore)
+- Fail at **Step 3 (decode)**: fix restore code, rerun Step 2 then Step 3.
+- Fail at **Step 4 (download)**: rerun Step 4 only.
+- Fail at **Step 5 (verify)**: payload damaged; rerun Step 4 then Step 5.
+- Fail at **Step 6 (backup target)**: check disk permissions/space, rerun Step 6.
+- Fail at **Step 7 (extract)**: rerun Step 7 only after fixing target path/disk.
