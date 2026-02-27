@@ -21,7 +21,7 @@ It restores real workspace files (not just DB row export), including memory/conf
 ### Recommended (extreme simplicity)
 No extra setup, no passphrase input, just URL prompts.
 Backup returns one restore code (`RESTORE-...`) and restore accepts it directly.
-Before backup starts, it shows folder-size tree and asks user to select scope (`full` / `core` / `custom`).
+Before backup starts, it shows folder-size tree. Agent should confirm scope in chat, then run with `SCOPE=full|core|custom` (and `CUSTOM_PATHS` for custom).
 If archive is larger than 10MB, backup auto-splits into multiple DB parts; restore auto-downloads all parts and reassembles.
 
 ```text

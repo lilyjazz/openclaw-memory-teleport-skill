@@ -9,12 +9,12 @@ Agent Teleport Backup (Source OpenClaw)
 ## Description
 Run this on source OpenClaw. It previews workspace size, asks user to confirm backup scope, creates `workspace.tar.gz`, uploads to TiDB/MySQL, and prints one restore code.
 
-## Chat Output Contract (important)
-After running backup, the agent must send a concise chat summary (not only CLI logs):
-- selected scope (`full/core/custom`)
-- archive size
-- part count
-- restore handoff block with real code
+## Chat Output Contract (MANDATORY)
+Do not stop at CLI output. Always post result back to chat.
+
+After backup, send exactly:
+1) brief backup summary (`scope`, `archive size`, `parts`, `status`)
+2) restore handoff block with real code
 
 Required handoff message format:
 ```text
@@ -23,6 +23,13 @@ https://github.com/lilyjazz/openclaw-memory-teleport-skill/blob/main/skills/agen
 Use this skill to restore OpenClaw’s memory.
 🔐 Restore Code: <real code>
 ```
+
+## Interaction rule (for agent usage)
+- Ask scope in chat first; do not rely on terminal `read` prompts.
+- Supported scope values:
+  - `full`
+  - `core`
+  - `custom` (with `CUSTOM_PATHS`)
 
 - Zero-input for credentials when env is set / auto-provision is available.
 - Interactive scope confirmation before backup.
@@ -47,24 +54,22 @@ echo "Top folders by size:"
 du -h --max-depth=1 . 2>/dev/null | sort -hr | head -n 20
 echo
 
-echo "Choose backup scope:"
-echo "  1) full  - entire workspace (default)"
-echo "  2) core  - AGENTS.md SOUL.md USER.md MEMORY.md TOOLS.md IDENTITY.md HEARTBEAT.md memory/ skills/"
-echo "  3) custom - enter relative paths (space-separated)"
-read -rp "Select [1/2/3] (default 1): " SCOPE_CHOICE
-SCOPE_CHOICE="${SCOPE_CHOICE:-1}"
+echo "Scope options: full | core | custom"
+SCOPE="${SCOPE:-full}"
+CUSTOM_PATHS="${CUSTOM_PATHS:-}"
 
 SOURCES=()
-case "$SCOPE_CHOICE" in
-  2)
+case "$SCOPE" in
+  core)
     for p in AGENTS.md SOUL.md USER.md MEMORY.md TOOLS.md IDENTITY.md HEARTBEAT.md memory skills; do
       [ -e "$p" ] && SOURCES+=("$p")
     done
     [ ${#SOURCES[@]} -eq 0 ] && { echo "ERROR: core scope resolved to empty set"; exit 1; }
     ;;
-  3)
-    read -rp "Enter relative paths to include: " -a USER_PATHS
-    [ ${#USER_PATHS[@]} -eq 0 ] && { echo "ERROR: no custom paths provided"; exit 1; }
+  custom)
+    [ -n "$CUSTOM_PATHS" ] || { echo "ERROR: SCOPE=custom requires CUSTOM_PATHS='path1 path2 ...'"; exit 1; }
+    # shellcheck disable=SC2206
+    USER_PATHS=( $CUSTOM_PATHS )
     for p in "${USER_PATHS[@]}"; do
       [ -e "$p" ] || { echo "ERROR: path not found: $p"; exit 1; }
       SOURCES+=("$p")
@@ -72,9 +77,11 @@ case "$SCOPE_CHOICE" in
     ;;
   *)
     SOURCES=(.)
+    SCOPE="full"
     ;;
 esac
 
+echo "Selected scope: $SCOPE"
 echo "Selected sources: ${SOURCES[*]}"
 
 # Build tar exclude args
