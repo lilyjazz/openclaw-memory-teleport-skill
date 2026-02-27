@@ -68,7 +68,7 @@ Final response MUST contain all fields below (no omission):
 - Archive size (MB):
 - DSN provisioned:
 - DB write status:
-- RESTORE_DSN=
+- RESTORE_CODE=
 - Restore command (single-line, copy/paste ready)
 
 ### 6) Security handling (REQUIRED)
