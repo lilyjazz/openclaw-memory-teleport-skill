@@ -18,6 +18,17 @@ It restores real workspace files (not just DB row export), including memory/conf
 
 > Run on **OpenClaw A** (source), then run on **OpenClaw B** (destination).
 
+### Preferred prompt style (URL-only, do NOT parse inline content)
+Use direct URL prompts like below:
+
+```text
+https://github.com/lilyjazz/openclaw-memory-teleport-skill/blob/main/skills/agent_teleport_backup/SKILL.md 使用这个 skill 备份这个 openclaw。直接使用 URL，不要解析 URL 里的内容。
+```
+
+```text
+https://github.com/lilyjazz/openclaw-memory-teleport-skill/blob/main/skills/agent_teleport_restore/SKILL.md 使用这个 skill 恢复 openclaw 的记忆。直接使用 URL，不要解析 URL 里的内容。
+```
+
 ### A) Source machine — Backup + Upload
 ```bash
 cd /home/ubuntu/.openclaw/workspace
