@@ -1,6 +1,6 @@
 ---
 name: agent-teleport-restore
-description: Restore full OpenClaw core/workspace files in-place from TiDB/MySQL teleport payload using DSN or encrypted OMT1 restore code. Use on destination machine after migration.
+description: Restore full OpenClaw core/workspace files in-place from TiDB/MySQL teleport payload using DSN. Use on destination machine after migration.
 ---
 
 # Title
@@ -9,17 +9,15 @@ Agent Teleport Restore (Destination OpenClaw, In-Place)
 ## Description
 Run this on destination OpenClaw to restore actual workspace files in-place.
 
-Supported inputs:
+Supported input:
 - Plain DSN: `mysql://...`
-- Encrypted code: `OMT1:<base64>` (will prompt passphrase interactively)
 
 ## One-shot restore (recommended)
 ```bash
 set -euo pipefail
 
-# Paste one of:
-# 1) DSN:  mysql://USER:PASSWORD@HOST:4000/test
-# 2) OMT1: OMT1:BASE64...
+# Paste DSN:
+# mysql://USER:PASSWORD@HOST:4000/test
 RESTORE_CODE_RAW='mysql://USER:PASSWORD@HOST:4000/test'
 RESTORE_CODE="$(printf '%s' "$RESTORE_CODE_RAW" | tr -d '[:space:]')"
 
@@ -29,17 +27,7 @@ for c in bash mysql tar xxd date mktemp; do
   command -v "$c" >/dev/null 2>&1 || { echo "ERROR: missing command: $c"; exit 1; }
 done
 
-# Resolve DSN from restore code
-if [[ "$RESTORE_CODE" == OMT1:* ]]; then
-  command -v openssl >/dev/null 2>&1 || { echo "ERROR: openssl required for OMT1 code"; exit 1; }
-  read -rsp "Enter passphrase for OMT1 restore code: " TELEPORT_KEY
-  echo
-  [ -n "${TELEPORT_KEY:-}" ] || { echo "ERROR: passphrase is required"; exit 1; }
-  PAYLOAD="${RESTORE_CODE#OMT1:}"
-  DSN=$(printf '%s' "$PAYLOAD" | openssl enc -d -aes-256-cbc -pbkdf2 -salt -pass pass:"$TELEPORT_KEY" -base64 -A)
-else
-  DSN="$RESTORE_CODE"
-fi
+DSN="$RESTORE_CODE"
 
 case "$DSN" in
   mysql://* ) ;;
@@ -83,7 +71,6 @@ echo "Target path: $TARGET_PATH"
 
 ## Runtime requirements
 - `bash`, `mysql`, `tar`, `xxd`, `date`, `mktemp`
-- If using OMT1 code: `openssl`
 
 ## Notes
 - Restores files in-place (not CSV/JSON table export).

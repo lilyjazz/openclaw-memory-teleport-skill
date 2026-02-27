@@ -18,11 +18,8 @@ It restores real workspace files (not just DB row export), including memory/conf
 
 > Run on **OpenClaw A** (source), then run on **OpenClaw B** (destination).
 
-### Recommended (encrypted restore code)
-No pre-export needed.
-Backup/restore will prompt passphrase interactively when using OMT1 encrypted code.
-
-Then use URL prompts:
+### Recommended (extreme simplicity)
+No extra setup, no passphrase input, just URL prompts.
 
 ```text
 # A: backup
@@ -34,13 +31,6 @@ Use this skill to back up all of OpenClaw’s memory.
 # B: restore
 https://github.com/lilyjazz/openclaw-memory-teleport-skill/blob/main/skills/agent_teleport_restore/SKILL.md
 Use this skill to restore OpenClaw’s memory.
-🔐 Restore Code: OMT1:...
-```
-
-### Legacy (plain DSN)
-If you press Enter at backup passphrase prompt, backup returns plain DSN and restore still works with:
-
-```text
 🔐 Restore Code: mysql://USER:PASSWORD@HOST:4000/test
 ```
 
