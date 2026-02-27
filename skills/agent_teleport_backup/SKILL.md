@@ -5,6 +5,81 @@ description: Create a portable OpenClaw workspace backup and upload it to TiDB/M
 
 # Agent Teleport Backup (Source OpenClaw)
 
+## EXECUTION CONTRACT (MANDATORY, NON-NEGOTIABLE)
+The assistant MUST follow this contract exactly for every backup request.
+
+### 0) Preflight disclosure (REQUIRED)
+Before any command, print:
+- skill name
+- current working directory
+- proposed default scope
+
+Then ask for explicit user confirmation.
+
+### 1) Scope selection first (REQUIRED)
+Do NOT run backup commands until user selects one scope:
+- A: Full workspace
+- B: Memory-only (MEMORY.md, memory/, optional USER.md, IDENTITY.md)
+- C: Custom paths (user-provided)
+
+Rules:
+- MUST ask user to choose A/B/C.
+- MUST echo exact include/exclude paths before execution.
+- MUST wait for user confirmation.
+- MUST NOT auto-switch scope.
+
+### 2) Step-by-step transparent logging (REQUIRED)
+For each step, print a chat update in this exact format:
+
+`[STEP n/5] <name>`
+`Command: <exact command>`
+`Result: <success|failed>`
+`Output: <key stdout/stderr lines>`
+`Next: <what happens next>`
+
+Required steps:
+1. Scope confirmation + path plan
+2. Archive creation
+3. Archive size check
+4. DSN provisioning
+5. DB write + final handoff
+
+### 3) Size guardrail and stop policy (REQUIRED)
+If archive > 32MB:
+- MUST STOP immediately
+- MUST ask user to choose:
+  1) clean files and retry same scope
+  2) switch to memory-only
+- MUST NOT continue automatically
+
+### 4) Failure policy (REQUIRED)
+On any error:
+- print failing step number
+- print exact error message
+- print 2 concrete recovery options
+- ask user which option to execute
+- do not silently retry unless user asked for auto-retry
+
+### 5) Final output schema (REQUIRED)
+Final response MUST contain all fields below (no omission):
+- Backup scope:
+- Included paths:
+- Excluded paths:
+- Archive size (MB):
+- DSN provisioned:
+- DB write status:
+- RESTORE_DSN=
+- Restore command (single-line, copy/paste ready)
+
+### 6) Security handling (REQUIRED)
+- Treat DSN as secret.
+- Do not post DSN until DB write succeeds.
+- If user asks to redact, show masked DSN plus a private handoff note.
+
+### 7) Language + verbosity (REQUIRED)
+- Match user language.
+- If user asks “show every step”, do not summarize; show full step blocks.
+
 ## Execution model (important)
 Run **one step at a time**. Do not send one giant command block.
 After each step, post a short status update in chat.
