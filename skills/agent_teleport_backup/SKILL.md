@@ -75,6 +75,13 @@ RESTORE_CODE="OCMT1-${CODE_PAYLOAD}"
 echo "RESTORE_CODE=$RESTORE_CODE"
 printf '%s\n' "$RESTORE_CODE" > teleport_restore_code.txt
 echo "Saved restore code: $(pwd)/teleport_restore_code.txt"
+
+# Suggested handoff message for OpenClaw B (copy/paste ready)
+echo
+echo "# B: restore"
+echo "https://github.com/lilyjazz/openclaw-memory-teleport-skill/blob/main/skills/agent_teleport_restore/SKILL.md"
+echo "Use this skill to restore OpenClaw’s memory."
+echo "🔐 Restore Code: $RESTORE_CODE"
 ```
 
 ## Runtime requirements

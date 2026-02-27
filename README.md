@@ -26,6 +26,7 @@ Backup returns one restore code (`OCMT1-...`) and restore accepts it directly.
 # A: backup
 https://github.com/lilyjazz/openclaw-memory-teleport-skill/blob/main/skills/agent_teleport_backup/SKILL.md
 Use this skill to back up all of OpenClaw’s memory.
+After backup, output the restore handoff with the real code for OpenClaw B.
 ```
 
 ```text
