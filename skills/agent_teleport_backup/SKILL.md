@@ -9,6 +9,21 @@ Agent Teleport Backup (Source OpenClaw)
 ## Description
 Run this on source OpenClaw. It previews workspace size, asks user to confirm backup scope, creates `workspace.tar.gz`, uploads to TiDB/MySQL, and prints one restore code.
 
+## Chat Output Contract (important)
+After running backup, the agent must send a concise chat summary (not only CLI logs):
+- selected scope (`full/core/custom`)
+- archive size
+- part count
+- restore handoff block with real code
+
+Required handoff message format:
+```text
+# B: restore
+https://github.com/lilyjazz/openclaw-memory-teleport-skill/blob/main/skills/agent_teleport_restore/SKILL.md
+Use this skill to restore OpenClaw’s memory.
+🔐 Restore Code: <real code>
+```
+
 - Zero-input for credentials when env is set / auto-provision is available.
 - Interactive scope confirmation before backup.
 - Outputs one code: `RESTORE-...`.

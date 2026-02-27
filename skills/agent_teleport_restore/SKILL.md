@@ -9,6 +9,21 @@ Agent Teleport Restore (Destination OpenClaw, In-Place)
 ## Description
 Run this on destination OpenClaw to restore actual workspace files in-place.
 
+## Chat Output Contract (important)
+After restore, the agent must send a chat summary (not only terminal output), including:
+- target restore path
+- safety backup path
+- part count downloaded (or single payload fallback)
+- final success/failure status
+
+Recommended success message:
+```text
+Restore completed.
+- Target path: <path>
+- Safety backup: <backup_path>
+- Payload parts: <n>
+```
+
 Supported input:
 - Preferred one-code format: `RESTORE-...` (contains DSN + transfer_id)
 - Backward compatible plain DSN: `mysql://...` (restores latest transfer)
