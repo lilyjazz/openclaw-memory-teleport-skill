@@ -44,14 +44,16 @@ Validated with real run:
 
 ## Requirements
 ### Backup side
-- `bash`, `tar`, `mysql`, `curl`, `xxd`, `sed`, `awk`
+- `bash`, `tar`, `curl`, `sed`, `awk`, `base64`
+- `node`, `npx` (uses `mysql2` package automatically)
 
 ### Restore side
-- `bash`, `mysql`, `tar`, `xxd`, `date`, `mktemp`
+- `bash`, `tar`, `date`, `mktemp`, `base64`
+- `node`, `npx` (uses `mysql2` package automatically)
 
 ## Troubleshooting
 - **DSN copied with spaces/newlines**: keep `DSN_RAW` and sanitize via `tr -d '[:space:]'` (already in example).
-- **`mysql: command not found`**: install mysql client first.
+- **`npx` install blocked**: ensure outbound npm access or preinstall `mysql2` in your environment.
 - **`payload not found`**: DSN wrong, DB wrong, or `teleport.id=1` missing.
 - **archive too large**: clean caches/build outputs and retry backup.
 

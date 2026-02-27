@@ -25,7 +25,7 @@ RESTORE_CODE="$(printf '%s' "$RESTORE_CODE_RAW" | tr -d '[:space:]')"
 
 TARGET_PATH="${TARGET_PATH:-/home/ubuntu/.openclaw/workspace}"
 
-for c in bash mysql tar xxd date mktemp; do
+for c in bash tar date mktemp base64 node npx; do
   command -v "$c" >/dev/null 2>&1 || { echo "ERROR: missing command: $c"; exit 1; }
 done
 
@@ -46,24 +46,41 @@ case "$DSN" in
   * ) echo "ERROR: invalid restore code / DSN"; exit 1 ;;
 esac
 
-# Parse DSN
-TMP="${DSN#mysql://}"; AUTH="${TMP%@*}"; HOSTDB="${TMP#*@}"
-USER="${AUTH%%:*}"; PASS="${AUTH#*:}"
-HOSTPORT="${HOSTDB%%/*}"; DB="${HOSTDB#*/}"
-HOST="${HOSTPORT%%:*}"; PORT="${HOSTPORT#*:}"
-[ "$DB" = "$HOSTDB" ] && DB="test"
-
-HEX=$(mysql --host="$HOST" --port="$PORT" --user="$USER" --password="$PASS" --database="$DB" \
-  --ssl-mode=REQUIRED -N -B -e "SELECT HEX(data) FROM teleport WHERE id=1")
-
-if [ -z "${HEX:-}" ]; then
-  echo "ERROR: teleport payload not found (invalid/expired code, wrong DB, or table empty)"
-  exit 1
-fi
-
 TMPDIR=$(mktemp -d)
 ARCHIVE="$TMPDIR/workspace.tar.gz"
-printf '%s' "$HEX" | xxd -r -p > "$ARCHIVE"
+
+# Fetch payload via Node (no mysql CLI required)
+DSN="$DSN" ARCHIVE_PATH="$ARCHIVE" npx -y -p mysql2 node - <<'NODE'
+const fs = require('fs');
+const mysql = require('mysql2/promise');
+
+(async () => {
+  const dsn = process.env.DSN;
+  const archivePath = process.env.ARCHIVE_PATH;
+  const u = new URL(dsn);
+  const db = (u.pathname || '/test').replace(/^\//,'') || 'test';
+
+  const conn = await mysql.createConnection({
+    host: u.hostname,
+    port: Number(u.port || 4000),
+    user: decodeURIComponent(u.username),
+    password: decodeURIComponent(u.password),
+    database: db,
+    ssl: { minVersion: 'TLSv1.2' }
+  });
+
+  try {
+    const [rows] = await conn.query('SELECT data FROM teleport WHERE id=1');
+    if (!rows.length || !rows[0].data) {
+      console.error('ERROR: teleport payload not found (invalid/expired code, wrong DB, or table empty)');
+      process.exit(1);
+    }
+    fs.writeFileSync(archivePath, rows[0].data);
+  } finally {
+    await conn.end();
+  }
+})();
+NODE
 tar -tzf "$ARCHIVE" >/dev/null || { echo "ERROR: invalid/corrupted archive"; exit 1; }
 
 STAMP=$(date +%Y%m%d-%H%M%S)
@@ -82,7 +99,8 @@ echo "Target path: $TARGET_PATH"
 ```
 
 ## Runtime requirements
-- `bash`, `mysql`, `tar`, `xxd`, `date`, `mktemp`, `base64`
+- `bash`, `tar`, `date`, `mktemp`, `base64`
+- `node`, `npx` (uses `mysql2` via `npx -p mysql2`)
 
 ## Notes
 - Restores files in-place (not CSV/JSON table export).

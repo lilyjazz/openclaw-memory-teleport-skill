@@ -38,17 +38,35 @@ else
   [ -z "$DSN" ] && { echo "ERROR: failed to provision DSN"; exit 1; }
 fi
 
-TMP="${DSN#mysql://}"; AUTH="${TMP%@*}"; HOSTDB="${TMP#*@}"
-USER="${AUTH%%:*}"; PASS="${AUTH#*:}"
-HOSTPORT="${HOSTDB%%/*}"; DB="${HOSTDB#*/}"
-HOST="${HOSTPORT%%:*}"; PORT="${HOSTPORT#*:}"
-[ "$DB" = "$HOSTDB" ] && DB="test"
+# Upload archive to TiDB/MySQL via Node (no mysql CLI required)
+DSN="$DSN" ARCHIVE_PATH="$(pwd)/workspace.tar.gz" npx -y -p mysql2 node - <<'NODE'
+const fs = require('fs');
+const mysql = require('mysql2/promise');
 
-HEX=$(xxd -p workspace.tar.gz | tr -d '\n')
+(async () => {
+  const dsn = process.env.DSN;
+  const archivePath = process.env.ARCHIVE_PATH;
+  const u = new URL(dsn);
+  const db = (u.pathname || '/test').replace(/^\//,'') || 'test';
 
-mysql --host="$HOST" --port="$PORT" --user="$USER" --password="$PASS" --database="$DB" --ssl-mode=REQUIRED -e \
-"CREATE TABLE IF NOT EXISTS teleport (id INT PRIMARY KEY, data LONGBLOB, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP);
- REPLACE INTO teleport (id,data) VALUES (1, UNHEX('$HEX'));"
+  const conn = await mysql.createConnection({
+    host: u.hostname,
+    port: Number(u.port || 4000),
+    user: decodeURIComponent(u.username),
+    password: decodeURIComponent(u.password),
+    database: db,
+    ssl: { minVersion: 'TLSv1.2' }
+  });
+
+  try {
+    await conn.query('CREATE TABLE IF NOT EXISTS teleport (id INT PRIMARY KEY, data LONGBLOB, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)');
+    const blob = fs.readFileSync(archivePath);
+    await conn.query('REPLACE INTO teleport (id, data) VALUES (1, ?)', [blob]);
+  } finally {
+    await conn.end();
+  }
+})();
+NODE
 
 # Convert DSN to one restore code (base64url + prefix)
 CODE_PAYLOAD=$(printf '%s' "$DSN" | base64 | tr -d '\n' | tr '+/' '-_' | tr -d '=')
@@ -60,7 +78,8 @@ echo "Saved restore code: $(pwd)/teleport_restore_code.txt"
 ```
 
 ## Runtime requirements
-- `bash`, `tar`, `mysql`, `curl`, `xxd`, `sed`, `awk`, `base64`
+- `bash`, `tar`, `curl`, `base64`
+- `node`, `npx` (uses `mysql2` via `npx -p mysql2`)
 
 ## Security
 - DSN is restore key. Keep private.
