@@ -18,20 +18,33 @@ It restores real workspace files (not just DB row export), including memory/conf
 
 > Run on **OpenClaw A** (source), then run on **OpenClaw B** (destination).
 
-### Preferred prompt style
-Use direct URL prompts like below:
+### Recommended (encrypted restore code)
+Set the same key on both sides:
+
+```bash
+export TELEPORT_KEY='your-strong-secret'
+```
+
+Then use URL prompts:
 
 ```text
-# back up memory
+# A: backup
 https://github.com/lilyjazz/openclaw-memory-teleport-skill/blob/main/skills/agent_teleport_backup/SKILL.md
 Use this skill to back up all of OpenClaw’s memory.
 ```
 
 ```text
-# restore memory
+# B: restore
 https://github.com/lilyjazz/openclaw-memory-teleport-skill/blob/main/skills/agent_teleport_restore/SKILL.md
 Use this skill to restore OpenClaw’s memory.
-🔐Restore Code: {Code}
+🔐 Restore Code: OMT1:...
+```
+
+### Legacy (plain DSN)
+If `TELEPORT_KEY` is not set, backup returns plain DSN and restore still works with:
+
+```text
+🔐 Restore Code: mysql://USER:PASSWORD@HOST:4000/test
 ```
 
 ## Verified Workflow (A -> B)
