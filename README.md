@@ -20,6 +20,7 @@ It restores real workspace files (not just DB row export), including memory/conf
 
 ### Recommended (extreme simplicity)
 No extra setup, no passphrase input, just URL prompts.
+Backup returns one restore code (`OCMT1-...`) and restore accepts it directly.
 
 ```text
 # A: backup
@@ -31,7 +32,7 @@ Use this skill to back up all of OpenClaw’s memory.
 # B: restore
 https://github.com/lilyjazz/openclaw-memory-teleport-skill/blob/main/skills/agent_teleport_restore/SKILL.md
 Use this skill to restore OpenClaw’s memory.
-🔐 Restore Code: mysql://USER:PASSWORD@HOST:4000/test
+🔐 Restore Code: OCMT1-...
 ```
 
 ## Verified Workflow (A -> B)

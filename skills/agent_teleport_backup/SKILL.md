@@ -7,10 +7,11 @@ description: Create a portable OpenClaw workspace backup and upload it to TiDB/M
 Agent Teleport Backup (Source OpenClaw)
 
 ## Description
-Run this on the source OpenClaw. It creates `workspace.tar.gz`, stores it in TiDB/MySQL `teleport.data` (LONGBLOB), and prints a restore code.
+Run this on the source OpenClaw. It creates `workspace.tar.gz`, stores it in TiDB/MySQL `teleport.data` (LONGBLOB), and prints a single restore code.
 
-- Default goal: zero-input UX.
-- Outputs plain DSN restore code directly.
+- Zero-input UX.
+- Outputs one code: `OCMT1-...` (DSN transformed in-skill).
+- This is obfuscation for UX/readability, not cryptographic security.
 
 ## Steps (source machine)
 ```bash
@@ -49,13 +50,17 @@ mysql --host="$HOST" --port="$PORT" --user="$USER" --password="$PASS" --database
 "CREATE TABLE IF NOT EXISTS teleport (id INT PRIMARY KEY, data LONGBLOB, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP);
  REPLACE INTO teleport (id,data) VALUES (1, UNHEX('$HEX'));"
 
-echo "RESTORE_DSN=$DSN"
-printf '%s\n' "$DSN" > teleport_restore_dsn.txt
-echo "Saved plain DSN: $(pwd)/teleport_restore_dsn.txt"
+# Convert DSN to one restore code (base64url + prefix)
+CODE_PAYLOAD=$(printf '%s' "$DSN" | base64 | tr -d '\n' | tr '+/' '-_' | tr -d '=')
+RESTORE_CODE="OCMT1-${CODE_PAYLOAD}"
+
+echo "RESTORE_CODE=$RESTORE_CODE"
+printf '%s\n' "$RESTORE_CODE" > teleport_restore_code.txt
+echo "Saved restore code: $(pwd)/teleport_restore_code.txt"
 ```
 
 ## Runtime requirements
-- `bash`, `tar`, `mysql`, `curl`, `xxd`, `sed`, `awk`
+- `bash`, `tar`, `mysql`, `curl`, `xxd`, `sed`, `awk`, `base64`
 
 ## Security
 - DSN is restore key. Keep private.
