@@ -176,21 +176,30 @@ const fs = require('fs');
 const mysql = require('mysql2/promise');
 (async () => {
   const dsn = process.env.DSN;
+  const archivePath = process.env.ARCHIVE_PATH;
   const u = new URL(dsn);
   const db = (u.pathname || '/test').replace(/^\//,'') || 'test';
   const conn = await mysql.createConnection({ host: u.hostname, port: Number(u.port || 4000), user: decodeURIComponent(u.username), password: decodeURIComponent(u.password), database: db, ssl: { minVersion: 'TLSv1.2' } });
   try {
     await conn.query(`CREATE TABLE IF NOT EXISTS teleport_parts (transfer_id VARCHAR(64) NOT NULL, part_no INT NOT NULL, total_parts INT NOT NULL, data LONGBLOB NOT NULL, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, PRIMARY KEY (transfer_id, part_no))`);
-    const buf = fs.readFileSync(process.env.ARCHIVE_PATH);
-    const CHUNK = 10 * 1024 * 1024;
-    const total = Math.ceil(buf.length / CHUNK) || 1;
+
+    const stat = fs.statSync(archivePath);
+    const CHUNK = 10 * 1024 * 1024; // 10MB
     const transferId = `tp_${Date.now().toString(36)}_${Math.random().toString(36).slice(2,8)}`;
-    for (let i = 0; i < total; i++) {
-      const part = buf.subarray(i * CHUNK, Math.min((i + 1) * CHUNK, buf.length));
-      await conn.query('INSERT INTO teleport_parts (transfer_id, part_no, total_parts, data) VALUES (?, ?, ?, ?)', [transferId, i + 1, total, part]);
-      process.stderr.write(`[upload] part ${i + 1}/${total}\n`);
+
+    let partNo = 0;
+    const stream = fs.createReadStream(archivePath, { highWaterMark: CHUNK });
+    for await (const chunk of stream) {
+      partNo += 1;
+      await conn.query(
+        'INSERT INTO teleport_parts (transfer_id, part_no, total_parts, data) VALUES (?, ?, ?, ?)',
+        [transferId, partNo, 0, chunk]
+      );
+      process.stderr.write(`[upload] part ${partNo}\n`);
     }
-    process.stdout.write(`TRANSFER_ID=${transferId}\nPARTS=${total}\nSIZE_BYTES=${buf.length}\n`);
+
+    await conn.query('UPDATE teleport_parts SET total_parts=? WHERE transfer_id=?', [partNo, transferId]);
+    process.stdout.write(`TRANSFER_ID=${transferId}\nPARTS=${partNo}\nSIZE_BYTES=${stat.size}\n`);
   } finally { await conn.end(); }
 })();
 NODE
