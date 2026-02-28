@@ -110,9 +110,17 @@ du -h --max-depth=1 . 2>/dev/null | sort -hr | head -n 20
 
 ## Step 3 — Confirm scope in chat (MANDATORY, no default)
 User must explicitly choose one scope before any backup run:
-- `SCOPE=full`
-- `SCOPE=core`
+- `SCOPE=full` (entire workspace)
+- `SCOPE=core` (memory/persona docs only)
 - `SCOPE=custom` with `CUSTOM_PATHS="path1 path2 ..."`
+
+`core` means only these paths:
+- `MEMORY.md`
+- `memory/`
+- `SOUL.md`
+- `USER.md`
+- `IDENTITY.md`
+- `TOOLS.md`
 
 If user does not choose, stop and ask again. Do not continue.
 
@@ -128,7 +136,7 @@ CUSTOM_PATHS="${CUSTOM_PATHS:-}"
 SOURCES=()
 case "$SCOPE" in
   core)
-    for p in AGENTS.md SOUL.md USER.md MEMORY.md TOOLS.md IDENTITY.md HEARTBEAT.md memory skills; do
+    for p in MEMORY.md memory SOUL.md USER.md IDENTITY.md TOOLS.md; do
       [ -e "$p" ] && SOURCES+=("$p")
     done
     ;;
@@ -227,6 +235,7 @@ Use this exact template in chat:
 ```text
 Backup completed.
 - Scope: <full|core|custom>
+- Included paths: <...>
 - Archive: <size>
 - Parts: <n>
 - Status: success
@@ -235,6 +244,9 @@ Backup completed.
 https://github.com/lilyjazz/openclaw-memory-teleport-skill/blob/main/skills/agent_teleport_restore/SKILL.md
 Use this skill to restore OpenClaw’s memory.
 🔐 Restore Code: <real code>
+
+Recommendation:
+Use GitHub to sync large project/code directories (repo clone/pull), and use Teleport for memory/persona state only.
 ```
 
 ## Failure retry index (backup)

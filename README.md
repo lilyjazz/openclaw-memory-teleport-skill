@@ -21,7 +21,9 @@ It restores real workspace files (not just DB row export), including memory/conf
 ### Recommended (extreme simplicity)
 No extra setup, no passphrase input, just URL prompts.
 Backup returns one restore code (`RESTORE-...`) and restore accepts it directly.
-Before backup starts, it shows folder-size tree. Agent must ask user to explicitly choose scope in chat (`full|core|custom`) before running backup. No implicit default scope is allowed.
+Before backup starts, it shows folder-size tree. Agent must ask user to explicitly choose scope in chat (`full|core|custom`) before running backup. No implicit default scope is allowed. Recommended default is `core` for memory/persona state only (`MEMORY.md`, `memory/`, `SOUL.md`, `USER.md`, `IDENTITY.md`, `TOOLS.md`).
+
+For large project/code directories, use GitHub sync (clone/pull) instead of Teleport backup.
 If archive is larger than 10MB, backup auto-splits into multiple DB parts; restore auto-downloads all parts and reassembles.
 
 ```text
