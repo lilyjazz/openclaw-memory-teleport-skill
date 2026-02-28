@@ -1,6 +1,6 @@
 ---
 name: agent-teleport-restore
-description: Restore full OpenClaw core/workspace files in-place from TiDB/MySQL chunked teleport payload using one restore code (RESTORE) or plain DSN.
+description: Restore full OpenClaw core/workspace files in-place from TiDB/MySQL chunked teleport payload using one restore code (RESTORE).
 ---
 
 # Agent Teleport Restore (Destination OpenClaw)
@@ -40,6 +40,7 @@ echo "$TARGET_PATH"
 ```bash
 RESTORE_CODE_RAW='RESTORE-PASTE_CODE_HERE'
 RESTORE_CODE="$(printf '%s' "$RESTORE_CODE_RAW" | tr -d '[:space:]')"
+[[ "$RESTORE_CODE" == RESTORE-* ]] || { echo "ERROR: restore code must start with RESTORE-"; exit 1; }
 printf '%s\n' "$RESTORE_CODE" > .teleport_code.tmp
 echo "Code loaded"
 ```
@@ -49,19 +50,15 @@ echo "Code loaded"
 set -euo pipefail
 RESTORE_CODE="$(cat .teleport_code.tmp)"
 TRANSFER_ID=""
-if [[ "$RESTORE_CODE" == RESTORE-* ]]; then
-  PAYLOAD="${RESTORE_CODE#RESTORE-}"
-  B64=$(printf '%s' "$PAYLOAD" | tr '-_' '+/')
-  PAD=$(( (4 - ${#B64} % 4) % 4 ))
-  [ "$PAD" -eq 2 ] && B64="${B64}=="
-  [ "$PAD" -eq 1 ] && B64="${B64}="
-  DEC=$(printf '%s' "$B64" | base64 -d 2>/dev/null || true)
-  DSN="${DEC%%|*}"
-  [ "$DEC" != "$DSN" ] && TRANSFER_ID="${DEC#*|}"
-else
-  DSN="$RESTORE_CODE"
-fi
-case "$DSN" in mysql://*) ;; *) echo "ERROR: invalid restore code / DSN"; exit 1;; esac
+PAYLOAD="${RESTORE_CODE#RESTORE-}"
+B64=$(printf '%s' "$PAYLOAD" | tr '-_' '+/')
+PAD=$(( (4 - ${#B64} % 4) % 4 ))
+[ "$PAD" -eq 2 ] && B64="${B64}=="
+[ "$PAD" -eq 1 ] && B64="${B64}="
+DEC=$(printf '%s' "$B64" | base64 -d 2>/dev/null || true)
+DSN="${DEC%%|*}"
+[ "$DEC" != "$DSN" ] && TRANSFER_ID="${DEC#*|}"
+case "$DSN" in mysql://*) ;; *) echo "ERROR: invalid RESTORE code payload"; exit 1;; esac
 printf '%s\n' "$DSN" > .teleport_dsn.tmp
 printf '%s\n' "$TRANSFER_ID" > .teleport_transfer.tmp
 echo "Decode OK"

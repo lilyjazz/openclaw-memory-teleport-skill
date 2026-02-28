@@ -66,7 +66,7 @@ Final response MUST contain all fields below (no omission):
 - Included paths:
 - Excluded paths:
 - Archive size (MB):
-- DSN provisioned:
+- DSN provisioned: <yes/no, masked>
 - DB write status:
 - RESTORE_CODE=
 - Restore command (single-line, copy/paste ready)
