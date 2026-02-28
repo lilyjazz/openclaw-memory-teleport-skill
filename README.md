@@ -1,6 +1,6 @@
 # OpenClaw Memory Teleport Skill
 
-Portable backup/restore skills for migrating OpenClaw workspace state across machines.
+Portable backup/restore skills for migrating OpenClaw memory/persona state across machines.
 
 ## Overview
 This repo provides a shell-based migration flow:
@@ -8,7 +8,7 @@ This repo provides a shell-based migration flow:
 2. Upload payload to TiDB/MySQL (`teleport_parts` table)
 3. Restore in-place on destination machine
 
-It restores real workspace files (not just DB row export), including memory/config/skills.
+It restores real memory/persona files (not just DB row export).
 
 ## Included Skills
 - `skills/agent_teleport_backup/SKILL.md` — source-side backup/upload
@@ -21,7 +21,7 @@ It restores real workspace files (not just DB row export), including memory/conf
 ### Recommended (extreme simplicity)
 No extra setup, no passphrase input, just URL prompts.
 Backup returns one restore code (`RESTORE-...`) and restore accepts it directly.
-Before backup starts, it shows folder-size tree. Agent must ask user to explicitly choose scope in chat (`full|core|custom`) before running backup. No implicit default scope is allowed. Recommended default is `core` for memory/persona state only (`MEMORY.md`, `memory/`, `SOUL.md`, `USER.md`, `IDENTITY.md`, `TOOLS.md`).
+Before backup starts, it shows folder-size tree, but backup scope is now fixed to memory/persona only (`MEMORY.md`, `memory/`, `SOUL.md`, `USER.md`, `IDENTITY.md`, `TOOLS.md`). Full workspace backup is intentionally disabled.
 
 For large project/code directories, use GitHub sync (clone/pull) instead of Teleport backup.
 If archive is larger than 10MB, backup auto-splits into multiple DB parts; restore auto-downloads all parts and reassembles.

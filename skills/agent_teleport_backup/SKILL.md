@@ -17,16 +17,16 @@ Before any command, print:
 Then ask for explicit user confirmation.
 
 ### 1) Scope selection first (REQUIRED)
-Do NOT run backup commands until user selects one scope:
-- A: Full workspace
-- B: Memory-only (MEMORY.md, memory/, optional USER.md, IDENTITY.md)
-- C: Custom paths (user-provided)
+Do NOT run backup commands until user confirms memory-only scope.
+
+Allowed scope:
+- B: Memory-only (MEMORY.md, memory/, SOUL.md, USER.md, IDENTITY.md, TOOLS.md)
 
 Rules:
-- MUST ask user to choose A/B/C.
+- MUST ask user to confirm memory-only backup.
 - MUST echo exact include/exclude paths before execution.
 - MUST wait for user confirmation.
-- MUST NOT auto-switch scope.
+- MUST NOT switch to full/custom scope.
 
 ### 2) Step-by-step transparent logging (REQUIRED)
 For each step, print a chat update in this exact format:
@@ -108,13 +108,11 @@ cd /home/ubuntu/.openclaw/workspace
 du -h --max-depth=1 . 2>/dev/null | sort -hr | head -n 20
 ```
 
-## Step 3 — Confirm scope in chat (MANDATORY, no default)
-User must explicitly choose one scope before any backup run:
-- `SCOPE=full` (entire workspace)
+## Step 3 — Confirm scope in chat (MANDATORY)
+Only one scope is allowed:
 - `SCOPE=core` (memory/persona docs only)
-- `SCOPE=custom` with `CUSTOM_PATHS="path1 path2 ..."`
 
-`core` means only these paths:
+Included paths are fixed:
 - `MEMORY.md`
 - `memory/`
 - `SOUL.md`
@@ -122,7 +120,7 @@ User must explicitly choose one scope before any backup run:
 - `IDENTITY.md`
 - `TOOLS.md`
 
-If user does not choose, stop and ask again. Do not continue.
+If user asks for full/custom workspace backup, refuse and recommend GitHub sync for code/projects.
 
 ## Step 4 — Build archive
 ```bash
@@ -130,28 +128,13 @@ set -euo pipefail
 IGNORE=(.git .venv venv env __pycache__ node_modules "*.log" "*.pyc" ".DS_Store" ".env" "*.pem" "*.key" "id_rsa" "id_dsa")
 EX=(); for p in "${IGNORE[@]}"; do EX+=(--exclude="$p"); done
 
-SCOPE="${SCOPE:-}"
-CUSTOM_PATHS="${CUSTOM_PATHS:-}"
-[ -n "$SCOPE" ] || { echo "ERROR: SCOPE is required. Choose full/core/custom in chat first."; exit 1; }
+SCOPE="${SCOPE:-core}"
+[ "$SCOPE" = "core" ] || { echo "ERROR: only SCOPE=core is supported. Use GitHub sync for large code/project directories."; exit 1; }
 SOURCES=()
-case "$SCOPE" in
-  core)
-    for p in MEMORY.md memory SOUL.md USER.md IDENTITY.md TOOLS.md; do
-      [ -e "$p" ] && SOURCES+=("$p")
-    done
-    ;;
-  custom)
-    [ -n "$CUSTOM_PATHS" ] || { echo "ERROR: SCOPE=custom requires CUSTOM_PATHS"; exit 1; }
-    # shellcheck disable=SC2206
-    USER_PATHS=( $CUSTOM_PATHS )
-    for p in "${USER_PATHS[@]}"; do [ -e "$p" ] || { echo "ERROR: path not found: $p"; exit 1; }; done
-    SOURCES=("${USER_PATHS[@]}")
-    ;;
-  full)
-    SOURCES=(.) ;;
-  *)
-    echo "ERROR: invalid SCOPE '$SCOPE'. Must be full/core/custom"; exit 1 ;;
-esac
+for p in MEMORY.md memory SOUL.md USER.md IDENTITY.md TOOLS.md; do
+  [ -e "$p" ] && SOURCES+=("$p")
+done
+[ ${#SOURCES[@]} -gt 0 ] || { echo "ERROR: no core files found to backup"; exit 1; }
 
 rm -f workspace.tar.gz
 # shellcheck disable=SC2068
@@ -234,7 +217,7 @@ printf 'RESTORE_CODE=%s\nPARTS=%s\nSIZE_BYTES=%s\n' "$RESTORE_CODE" "$PARTS" "$S
 Use this exact template in chat:
 ```text
 Backup completed.
-- Scope: <full|core|custom>
+- Scope: core
 - Included paths: <...>
 - Archive: <size>
 - Parts: <n>
