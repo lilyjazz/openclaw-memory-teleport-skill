@@ -267,7 +267,7 @@ const mysql = require('mysql2/promise');
     await conn.query('UPDATE teleport_parts SET total_parts=? WHERE transfer_id=?', [partNo, transferId]);
     const sha256 = hasher.digest('hex');
     await conn.query(
-      'INSERT INTO teleport_meta (transfer_id, sha256, size_bytes, parts, claim_url, expires_at) VALUES (?, ?, ?, ?, ?, ?)',
+      'INSERT INTO teleport_meta (transfer_id, sha256, size_bytes, parts, claim_url, expires_at) VALUES (?, ?, ?, ?, ?, ?) ON DUPLICATE KEY UPDATE sha256=VALUES(sha256), size_bytes=VALUES(size_bytes), parts=VALUES(parts), claim_url=VALUES(claim_url), expires_at=VALUES(expires_at)',
       [transferId, sha256, stat.size, partNo, claimUrl, expiresAt]
     );
     process.stdout.write(`TRANSFER_ID=${transferId}\nPARTS=${partNo}\nSIZE_BYTES=${stat.size}\nSHA256=${sha256}\n`);

@@ -96,13 +96,16 @@ const mysql = require('mysql2/promise');
       const expectedParts = Number(rows[0].total_parts || 0);
       if (!expectedParts || expectedParts !== rows.length) throw new Error('parts count mismatch');
       partCount = rows.length;
-      const bufs = [];
-      for (let i = 0; i < rows.length; i++) {
-        if (rows[i].part_no !== i + 1) throw new Error('part order mismatch');
-        bufs.push(rows[i].data);
-        process.stderr.write(`[download] part ${i + 1}/${rows.length}\n`);
+      const fd = fs.openSync(process.env.ARCHIVE_PATH, 'w');
+      try {
+        for (let i = 0; i < rows.length; i++) {
+          if (rows[i].part_no !== i + 1) throw new Error('part order mismatch');
+          fs.writeSync(fd, rows[i].data);
+          process.stderr.write(`[download] part ${i + 1}/${rows.length}\n`);
+        }
+      } finally {
+        fs.closeSync(fd);
       }
-      fs.writeFileSync(process.env.ARCHIVE_PATH, Buffer.concat(bufs));
 
       const [metaTbl] = await conn.query("SHOW TABLES LIKE 'teleport_meta'");
       if (metaTbl.length) {
