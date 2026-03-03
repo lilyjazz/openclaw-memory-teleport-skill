@@ -16,6 +16,8 @@ Restore completed.
 - Target path: <path>
 - Safety backup: <backup_path>
 - Payload parts: <n>
+- Expires At: <ISO timestamp or unknown>
+- Claim Action: <claim now if near expiry>
 - Status: success
 ```
 
@@ -67,12 +69,14 @@ echo "Decode OK"
 ## Step 4 — Download payload parts and assemble archive
 ```bash
 set -euo pipefail
+umask 077
 TMPDIR=$(mktemp -d)
 ARCHIVE="$TMPDIR/workspace.tar.gz"
 DSN="$(cat .teleport_dsn.tmp)"
 TRANSFER_ID="$(cat .teleport_transfer.tmp)"
+[ -n "$TRANSFER_ID" ] || { echo "ERROR: restore code missing transfer_id"; exit 1; }
 
-DSN="$DSN" TRANSFER_ID="$TRANSFER_ID" ARCHIVE_PATH="$ARCHIVE" npx -y -p mysql2 node - <<'NODE'
+DOWN_OUT=$(DSN="$DSN" TRANSFER_ID="$TRANSFER_ID" ARCHIVE_PATH="$ARCHIVE" npx -y -p mysql2 node - <<'NODE'
 const fs = require('fs');
 const mysql = require('mysql2/promise');
 (async () => {
@@ -80,17 +84,17 @@ const mysql = require('mysql2/promise');
   const db = (u.pathname || '/test').replace(/^\//,'') || 'test';
   const conn = await mysql.createConnection({ host: u.hostname, port: Number(u.port || 4000), user: decodeURIComponent(u.username), password: decodeURIComponent(u.password), database: db, ssl: { minVersion: 'TLSv1.2' } });
   let partCount = 1;
+  let expectedSha256 = '';
+  let expiresAt = '';
+  let claimUrl = '';
   try {
-    let transferId = process.env.TRANSFER_ID || '';
+    const transferId = process.env.TRANSFER_ID || '';
     const [tbl] = await conn.query("SHOW TABLES LIKE 'teleport_parts'");
     if (tbl.length) {
-      if (!transferId) {
-        const [latest] = await conn.query('SELECT transfer_id FROM teleport_parts ORDER BY created_at DESC LIMIT 1');
-        if (!latest.length) throw new Error('no transfer found');
-        transferId = latest[0].transfer_id;
-      }
       const [rows] = await conn.query('SELECT part_no,total_parts,data FROM teleport_parts WHERE transfer_id=? ORDER BY part_no ASC', [transferId]);
       if (!rows.length) throw new Error('transfer_id not found');
+      const expectedParts = Number(rows[0].total_parts || 0);
+      if (!expectedParts || expectedParts !== rows.length) throw new Error('parts count mismatch');
       partCount = rows.length;
       const bufs = [];
       for (let i = 0; i < rows.length; i++) {
@@ -99,23 +103,57 @@ const mysql = require('mysql2/promise');
         process.stderr.write(`[download] part ${i + 1}/${rows.length}\n`);
       }
       fs.writeFileSync(process.env.ARCHIVE_PATH, Buffer.concat(bufs));
+
+      const [metaTbl] = await conn.query("SHOW TABLES LIKE 'teleport_meta'");
+      if (metaTbl.length) {
+        const [meta] = await conn.query('SELECT sha256, parts, expires_at, claim_url FROM teleport_meta WHERE transfer_id=? LIMIT 1', [transferId]);
+        if (meta.length) {
+          expectedSha256 = meta[0].sha256 || '';
+          if (meta[0].parts && Number(meta[0].parts) !== partCount) throw new Error('meta parts mismatch');
+          expiresAt = meta[0].expires_at || '';
+          claimUrl = meta[0].claim_url || '';
+        }
+      }
     } else {
       const [rows] = await conn.query('SELECT data FROM teleport WHERE id=1');
       if (!rows.length || !rows[0].data) throw new Error('payload not found');
       fs.writeFileSync(process.env.ARCHIVE_PATH, rows[0].data);
     }
-    process.stdout.write(`PARTS=${partCount}\nARCHIVE=${process.env.ARCHIVE_PATH}\n`);
+    process.stdout.write(`PARTS=${partCount}\nARCHIVE=${process.env.ARCHIVE_PATH}\nEXPECTED_SHA256=${expectedSha256}\nEXPIRES_AT=${expiresAt}\nCLAIM_URL=${claimUrl}\n`);
   } finally { await conn.end(); }
 })();
 NODE
+)
+printf '%s\n' "$DOWN_OUT" > .teleport_download.tmp
 printf '%s\n' "$ARCHIVE" > .teleport_archive.tmp
+printf '%s\n' "$DOWN_OUT" | sed -n 's/^EXPECTED_SHA256=//p' > .teleport_expected_sha256.tmp
+printf '%s\n' "$DOWN_OUT" | sed -n 's/^EXPIRES_AT=//p' > .teleport_expires_at.tmp
+printf '%s\n' "$DOWN_OUT" | sed -n 's/^CLAIM_URL=//p' > .teleport_claim_url.tmp
+echo "$DOWN_OUT"
 ```
 
 ## Step 5 — Verify archive
 ```bash
+set -euo pipefail
 ARCHIVE="$(cat .teleport_archive.tmp)"
 tar -tzf "$ARCHIVE" >/dev/null
-echo "Archive OK: $ARCHIVE"
+EXPECTED_SHA256="$(cat .teleport_expected_sha256.tmp 2>/dev/null || true)"
+ACTUAL_SHA256=$(ARCHIVE="$ARCHIVE" node - <<'NODE'
+const fs = require('fs');
+const crypto = require('crypto');
+const p = process.env.ARCHIVE;
+const buf = fs.readFileSync(p);
+process.stdout.write(crypto.createHash('sha256').update(buf).digest('hex'));
+NODE
+)
+if [ -n "$EXPECTED_SHA256" ] && [ "$EXPECTED_SHA256" != "$ACTUAL_SHA256" ]; then
+  echo "ERROR: sha256 mismatch"; exit 1
+fi
+if [ -n "$EXPECTED_SHA256" ]; then
+  echo "Archive OK: $ARCHIVE (sha256 verified)"
+else
+  echo "Archive OK: $ARCHIVE (sha256 unavailable, tar structure verified)"
+fi
 ```
 
 ## Step 6 — Safety backup target path
@@ -142,10 +180,18 @@ echo "Restore completed: $TARGET_PATH"
 
 ## Step 8 — Post chat summary
 Use the success/failure template from this file.
+If `EXPIRES_AT` exists (from `.teleport_expires_at.tmp`) and is near expiry, remind user to claim promptly using `.teleport_claim_url.tmp`.
+In success summary, always include `Expires At` and `Claim Action` fields.
+
+## Step 9 — Cleanup sensitive temp files (recommended)
+```bash
+rm -f .teleport_dsn.tmp .teleport_transfer.tmp .teleport_archive.tmp .teleport_download.tmp .teleport_expected_sha256.tmp .teleport_expires_at.tmp .teleport_claim_url.tmp
+echo "Sensitive temp files cleaned"
+```
 
 ## Failure retry index (restore)
 - Fail at **Step 3 (decode)**: fix restore code, rerun Step 2 then Step 3.
-- Fail at **Step 4 (download)**: rerun Step 4 only.
+- Fail at **Step 4 (download)**: rerun Step 4 only. If `transfer_id` missing, regenerate restore code from backup side.
 - Fail at **Step 5 (verify)**: payload damaged; rerun Step 4 then Step 5.
 - Fail at **Step 6 (backup target)**: check disk permissions/space, rerun Step 6.
 - Fail at **Step 7 (extract)**: rerun Step 7 only after fixing target path/disk.

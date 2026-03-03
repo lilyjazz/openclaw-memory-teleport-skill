@@ -26,6 +26,28 @@ Before backup starts, it shows folder-size tree, but backup scope is now fixed t
 For large project/code directories, use GitHub sync (clone/pull) instead of Teleport backup.
 If archive is larger than 10MB, backup auto-splits into multiple DB parts; restore auto-downloads all parts and reassembles.
 
+Latest flow improvements for TiDB Cloud Zero:
+- backup calls Zero with `Idempotency-Key` and parses JSON response robustly (no brittle regex-only parsing)
+- backup persists `claimUrl` and `expiresAt` metadata (when provided) and surfaces expiry in handoff
+- backup stores archive `SHA256` in DB metadata; restore verifies checksum before extract when metadata exists
+- restore enforces part-count consistency (`total_parts`) before reassembly
+
+## TTL/Claim Lifecycle (What users should do)
+TiDB Cloud Zero instances are ephemeral. A backup may include `expiresAt` and `claimUrl` metadata.
+
+- During backup handoff, always keep `expiresAt` with the restore code.
+- On restore success, check whether the instance is close to expiration.
+- If near expiry, open `claimUrl` immediately to claim/convert before expiration.
+- Treat `claimUrl` as sensitive (like DSN/restore code); do not post it in public channels.
+
+Suggested post-restore message to user:
+```text
+Restore completed.
+- Status: success
+- Expires At: <ISO timestamp or unknown>
+- Claim Action: <claim now if near expiry>
+```
+
 ```text
 # A: backup
 https://github.com/lilyjazz/openclaw-memory-teleport-skill/blob/main/skills/agent_teleport_backup/SKILL.md
@@ -60,7 +82,10 @@ Validated with real run:
 - **DSN copied with spaces/newlines**: keep `DSN_RAW` and sanitize via `tr -d '[:space:]'` (already in example).
 - **`npx` install blocked**: ensure outbound npm access or preinstall `mysql2` in your environment.
 - **`payload not found`**: DSN wrong, DB wrong, or `teleport.id=1` missing.
+- **`parts count mismatch` / `meta parts mismatch`**: transfer rows incomplete or mixed; rerun backup upload and use the new restore code.
+- **`sha256 mismatch`**: payload corrupted or wrong transfer; rerun download (Step 4) or regenerate backup.
 - **archive too large**: clean caches/build outputs and retry backup.
+- **`expiresAt` is near / already passed**: claim immediately with `claimUrl` (if available), otherwise re-run backup to get a fresh Zero instance.
 
 ## Security Notes
 - DSN is a restore key (secret).
