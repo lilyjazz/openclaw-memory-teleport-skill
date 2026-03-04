@@ -26,28 +26,6 @@ Before backup starts, it shows folder-size tree, but backup scope is now fixed t
 For large project/code directories, use GitHub sync (clone/pull) instead of Teleport backup.
 If archive is larger than 10MB, backup auto-splits into multiple DB parts; restore auto-downloads all parts and reassembles.
 
-Latest flow improvements for TiDB Cloud Zero:
-- backup calls Zero with `Idempotency-Key` and parses JSON response robustly (no brittle regex-only parsing)
-- backup persists `claimUrl` and `expiresAt` metadata (when provided) and surfaces expiry in handoff
-- backup stores archive `SHA256` in DB metadata; restore verifies checksum before extract when metadata exists
-- restore enforces part-count consistency (`total_parts`) before reassembly
-
-## TTL/Claim Lifecycle (What users should do)
-TiDB Cloud Zero instances are ephemeral. A backup may include `expiresAt` and `claimUrl` metadata.
-
-- During backup handoff, always keep `expiresAt` with the restore code.
-- On restore success, check whether the instance is close to expiration.
-- If near expiry, open `claimUrl` immediately to claim/convert before expiration.
-- Treat `claimUrl` as sensitive (like DSN/restore code); do not post it in public channels.
-
-Suggested post-restore message to user:
-```text
-Restore completed.
-- Status: success
-- Expires At: <ISO timestamp or unknown>
-- Claim Action: <claim now if near expiry>
-```
-
 ```text
 # A: backup
 https://github.com/lilyjazz/openclaw-memory-teleport-skill/blob/main/skills/agent_teleport_backup/SKILL.md
@@ -68,6 +46,22 @@ Validated with real run:
 - Destination restored to `/home/ubuntu/.openclaw/workspace`
 - Safety backup created before overwrite
 - Core files successfully restored in-place
+
+## TTL/Claim Lifecycle (What users should do)
+TiDB Cloud Zero instances are ephemeral. A backup may include `expiresAt` and `claimUrl` metadata.
+
+- During backup handoff, always keep `expiresAt` with the restore code.
+- On restore success, check whether the instance is close to expiration.
+- If near expiry, open `claimUrl` immediately to claim/convert before expiration.
+- Treat `claimUrl` as sensitive (like DSN/restore code); do not post it in public channels.
+
+Suggested post-restore message to user:
+```text
+Restore completed.
+- Status: success
+- Expires At: <ISO timestamp or unknown>
+- Claim Action: <claim now if near expiry>
+```
 
 ## Requirements
 ### Backup side
