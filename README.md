@@ -50,42 +50,6 @@ Before backup starts, it shows folder-size tree, but backup scope is now fixed t
 For large project/code directories, use GitHub sync (clone/pull) instead of Teleport backup.
 If archive is larger than 10MB, backup auto-splits into multiple DB parts; restore auto-downloads all parts and reassembles.
 
-Suggested backup handoff fields:
-```text
-Backup completed.
-- Parts: <n>
-- Upload duration: <seconds>
-- Upload avg rate: <MB/s>
-- Expires At: <ISO timestamp or unknown>
-- Claim URL: <claimUrl or unavailable>
-- Claim Action: <claim now if near expiry>
-```
-
-## Backup duration expectations
-Backup time is dominated by archive size, network latency/bandwidth, and sequential DB part writes.
-
-- 8 minutes can be reasonable for large archives or constrained network paths.
-- First run may be slower because `npx -y -p mysql2` may need package download/installation.
-- Use `Upload duration` and `Upload avg rate` to distinguish network bottleneck vs abnormal behavior.
-
-## Reducing wait anxiety (progress UX)
-During long-running backup/restore steps, always keep the user informed with heartbeat updates.
-
-- If a step runs longer than 30s, post progress every 20-30s.
-- Never stay silent for more than 45s.
-- Include stage + progress + elapsed time in each heartbeat.
-
-Suggested heartbeat format:
-```text
-[WORKING] <stage> — <progress> — elapsed <seconds>s
-```
-
-Examples:
-```text
-[WORKING] DSN provisioning — retry 2/5 — elapsed 34s
-[WORKING] Uploading parts — 7/24 (29%) — elapsed 91s
-[WORKING] Downloading parts — 12/40 (30%) — elapsed 76s
-```
 ```text
 # A: backup
 https://github.com/lilyjazz/openclaw-memory-teleport-skill/blob/main/skills/agent_teleport_backup/SKILL.md
@@ -99,13 +63,6 @@ https://github.com/lilyjazz/openclaw-memory-teleport-skill/blob/main/skills/agen
 Use this skill to restore OpenClaw’s memory.
 🔐 Restore Code: RESTORE-...
 ```
-
-## Verified Workflow (A -> B)
-Validated with real run:
-- Source packed and uploaded `workspace.tar.gz`
-- Destination restored to `/home/ubuntu/.openclaw/workspace`
-- Safety backup created before overwrite
-- Core files successfully restored in-place
 
 ## Requirements
 ### Backup side
