@@ -66,9 +66,14 @@ Final response MUST contain all fields below (no omission):
 - Included paths:
 - Excluded paths:
 - Archive size (MB):
+- Upload duration (sec):
+- Upload average rate (MB/s):
 - DSN provisioned: <yes/no, masked>
 - DB write status:
 - RESTORE_CODE=
+- Expires At:
+- Claim URL:
+- Claim Action:
 - Restore command (single-line, copy/paste ready)
 
 ### 6) Security handling (REQUIRED)
@@ -80,9 +85,22 @@ Final response MUST contain all fields below (no omission):
 - Match user language.
 - If user asks “show every step”, do not summarize; show full step blocks.
 
+### 8) Long-running wait heartbeat (REQUIRED)
+- For any step running >30s, post heartbeat updates at least every 20-30s.
+- Never stay silent for >45s during upload/provisioning.
+- Heartbeat must include current sub-stage, progress, and elapsed time.
+
+Heartbeat format:
+`[WORKING] <stage> — <progress> — elapsed <seconds>s`
+
+Examples:
+- `[WORKING] DSN provisioning — retry 2/5 — elapsed 34s`
+- `[WORKING] Uploading parts — 7/24 (29%) — elapsed 91s`
+
 ## Execution model (important)
 Run **one step at a time**. Do not send one giant command block.
 After each step, post a short status update in chat.
+For long-running Step 5/6, post periodic heartbeat updates using the format above.
 
 ## Chat Output Contract (MANDATORY)
 After backup, send:
@@ -250,7 +268,9 @@ const mysql = require('mysql2/promise');
 
     const stat = fs.statSync(archivePath);
     const CHUNK = 10 * 1024 * 1024; // 10MB
+    const totalParts = Math.max(1, Math.ceil(stat.size / CHUNK));
     const hasher = crypto.createHash('sha256');
+    const startMs = Date.now();
 
     let partNo = 0;
     const stream = fs.createReadStream(archivePath, { highWaterMark: CHUNK });
@@ -259,18 +279,21 @@ const mysql = require('mysql2/promise');
       hasher.update(chunk);
       await conn.query(
         'INSERT INTO teleport_parts (transfer_id, part_no, total_parts, data) VALUES (?, ?, ?, ?) ON DUPLICATE KEY UPDATE total_parts=VALUES(total_parts), data=VALUES(data)',
-        [transferId, partNo, 0, chunk]
+        [transferId, partNo, totalParts, chunk]
       );
-      process.stderr.write(`[upload] part ${partNo}\n`);
+      const pct = Math.floor((partNo / totalParts) * 100);
+      const elapsedSec = Math.max(1, Math.round((Date.now() - startMs) / 1000));
+      process.stderr.write(`[upload] part ${partNo}/${totalParts} (${pct}%) elapsed=${elapsedSec}s\n`);
     }
 
-    await conn.query('UPDATE teleport_parts SET total_parts=? WHERE transfer_id=?', [partNo, transferId]);
     const sha256 = hasher.digest('hex');
+    const durationSec = Math.max(1, Math.round((Date.now() - startMs) / 1000));
+    const avgMbps = ((stat.size / 1024 / 1024) / durationSec).toFixed(2);
     await conn.query(
       'INSERT INTO teleport_meta (transfer_id, sha256, size_bytes, parts, claim_url, expires_at) VALUES (?, ?, ?, ?, ?, ?) ON DUPLICATE KEY UPDATE sha256=VALUES(sha256), size_bytes=VALUES(size_bytes), parts=VALUES(parts), claim_url=VALUES(claim_url), expires_at=VALUES(expires_at)',
       [transferId, sha256, stat.size, partNo, claimUrl, expiresAt]
     );
-    process.stdout.write(`TRANSFER_ID=${transferId}\nPARTS=${partNo}\nSIZE_BYTES=${stat.size}\nSHA256=${sha256}\n`);
+    process.stdout.write(`TRANSFER_ID=${transferId}\nPARTS=${partNo}\nSIZE_BYTES=${stat.size}\nSHA256=${sha256}\nUPLOAD_DURATION_SEC=${durationSec}\nUPLOAD_AVG_MBPS=${avgMbps}\n`);
   } finally { await conn.end(); }
 })();
 NODE
@@ -287,11 +310,22 @@ TRANSFER_ID=$(sed -n 's/^TRANSFER_ID=//p' .teleport_upload.tmp)
 PARTS=$(sed -n 's/^PARTS=//p' .teleport_upload.tmp)
 SIZE_BYTES=$(sed -n 's/^SIZE_BYTES=//p' .teleport_upload.tmp)
 SHA256=$(sed -n 's/^SHA256=//p' .teleport_upload.tmp)
+UPLOAD_DURATION_SEC=$(sed -n 's/^UPLOAD_DURATION_SEC=//p' .teleport_upload.tmp)
+UPLOAD_AVG_MBPS=$(sed -n 's/^UPLOAD_AVG_MBPS=//p' .teleport_upload.tmp)
+EXPIRES_AT="$(cat .teleport_expires_at.tmp 2>/dev/null || true)"
+CLAIM_URL="$(cat .teleport_claim_url.tmp 2>/dev/null || true)"
+if [ -n "$EXPIRES_AT" ] && [ -n "$CLAIM_URL" ]; then
+  CLAIM_ACTION="Claim now if restore is not immediate; open claim URL before Expires At."
+elif [ -n "$EXPIRES_AT" ]; then
+  CLAIM_ACTION="Restore ASAP before Expires At."
+else
+  CLAIM_ACTION="No expiry metadata returned; treat as ephemeral and restore ASAP."
+fi
 RAW="${DSN}|${TRANSFER_ID}"
 CODE_PAYLOAD=$(printf '%s' "$RAW" | base64 | tr -d '\n' | tr '+/' '-_' | tr -d '=')
 RESTORE_CODE="RESTORE-${CODE_PAYLOAD}"
 printf '%s\n' "$RESTORE_CODE" > teleport_restore_code.txt
-printf 'RESTORE_CODE=%s\nPARTS=%s\nSIZE_BYTES=%s\nSHA256=%s\n' "$RESTORE_CODE" "$PARTS" "$SIZE_BYTES" "$SHA256"
+printf 'RESTORE_CODE=%s\nPARTS=%s\nSIZE_BYTES=%s\nSHA256=%s\nUPLOAD_DURATION_SEC=%s\nUPLOAD_AVG_MBPS=%s\nEXPIRES_AT=%s\nCLAIM_URL=%s\nCLAIM_ACTION=%s\n' "$RESTORE_CODE" "$PARTS" "$SIZE_BYTES" "$SHA256" "${UPLOAD_DURATION_SEC:-unknown}" "${UPLOAD_AVG_MBPS:-unknown}" "${EXPIRES_AT:-unknown}" "${CLAIM_URL:-unavailable}" "$CLAIM_ACTION"
 ```
 
 ## Step 8 — Post chat summary
@@ -303,7 +337,11 @@ Backup completed.
 - Archive: <size>
 - Parts: <n>
 - SHA256: <sha256>
+- Upload duration: <seconds>
+- Upload avg rate: <MB/s>
 - Expires at: <expiresAt or unknown>
+- Claim URL: <claimUrl or unavailable>
+- Claim Action: <claim now if near expiry>
 - Status: success
 
 # B: restore

@@ -14,6 +14,30 @@ It restores real memory/persona files (not just DB row export).
 - `skills/agent_teleport_backup/SKILL.md` — source-side backup/upload
 - `skills/agent_teleport_restore/SKILL.md` — destination-side in-place restore
 
+## Data Flow (Quick Understanding)
+```mermaid
+flowchart LR
+  A[OpenClaw A Source\ncore memory files] --> B[Build workspace.tar.gz\ncompute SHA256]
+  B --> C[Chunk upload 10MB parts]
+  C --> D[(TiDB\nteleport_parts + teleport_meta)]
+  E[TiDB Zero API] --> F[connectionString + claimUrl + expiresAt]
+  F --> C
+  C --> G[RESTORE_CODE]
+  G --> H[OpenClaw B Destination]
+  H --> I[Decode code to DSN + transfer_id]
+  I --> J[Download parts + reassemble]
+  D --> J
+  J --> K[Verify parts + SHA256 + tar]
+  K --> L[Restore to target path]
+  L --> M[Post-restore claim action\nif near expiry]
+```
+
+What this gives users quickly:
+- Reliable transport: chunked upload/download with retry-safe writes.
+- Integrity safety: restore verifies part consistency and SHA256 before extract.
+- Lifecycle clarity: backup/restore expose `expiresAt` and `claimUrl` with claim guidance.
+- Better waiting UX: long steps emit heartbeat/progress updates, not silent waits.
+
 ## Copy/Paste Quick Start
 
 > Run on **OpenClaw A** (source), then run on **OpenClaw B** (destination).
@@ -46,6 +70,43 @@ Restore completed.
 - Status: success
 - Expires At: <ISO timestamp or unknown>
 - Claim Action: <claim now if near expiry>
+```
+
+Suggested backup handoff fields:
+```text
+Backup completed.
+- Parts: <n>
+- Upload duration: <seconds>
+- Upload avg rate: <MB/s>
+- Expires At: <ISO timestamp or unknown>
+- Claim URL: <claimUrl or unavailable>
+- Claim Action: <claim now if near expiry>
+```
+
+## Backup duration expectations
+Backup time is dominated by archive size, network latency/bandwidth, and sequential DB part writes.
+
+- 8 minutes can be reasonable for large archives or constrained network paths.
+- First run may be slower because `npx -y -p mysql2` may need package download/installation.
+- Use `Upload duration` and `Upload avg rate` to distinguish network bottleneck vs abnormal behavior.
+
+## Reducing wait anxiety (progress UX)
+During long-running backup/restore steps, always keep the user informed with heartbeat updates.
+
+- If a step runs longer than 30s, post progress every 20-30s.
+- Never stay silent for more than 45s.
+- Include stage + progress + elapsed time in each heartbeat.
+
+Suggested heartbeat format:
+```text
+[WORKING] <stage> — <progress> — elapsed <seconds>s
+```
+
+Examples:
+```text
+[WORKING] DSN provisioning — retry 2/5 — elapsed 34s
+[WORKING] Uploading parts — 7/24 (29%) — elapsed 91s
+[WORKING] Downloading parts — 12/40 (30%) — elapsed 76s
 ```
 
 ```text
