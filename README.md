@@ -14,6 +14,30 @@ It restores real memory/persona files (not just DB row export).
 - `skills/agent_teleport_backup/SKILL.md` — source-side backup/upload
 - `skills/agent_teleport_restore/SKILL.md` — destination-side in-place restore
 
+## Data Flow (Quick Understanding)
+```mermaid
+flowchart LR
+  A[OpenClaw A Source\ncore memory files] --> B[Build workspace.tar.gz\ncompute SHA256]
+  B --> C[Chunk upload 10MB parts]
+  C --> D[(TiDB\nteleport_parts + teleport_meta)]
+  E[TiDB Zero API] --> F[connectionString + claimUrl + expiresAt]
+  F --> C
+  C --> G[RESTORE_CODE]
+  G --> H[OpenClaw B Destination]
+  H --> I[Decode code to DSN + transfer_id]
+  I --> J[Download parts + reassemble]
+  D --> J
+  J --> K[Verify parts + SHA256 + tar]
+  K --> L[Restore to target path]
+  L --> M[Post-restore claim action\nif near expiry]
+```
+
+What this gives users quickly:
+- Reliable transport: chunked upload/download with retry-safe writes.
+- Integrity safety: restore verifies part consistency and SHA256 before extract.
+- Lifecycle clarity: backup/restore expose `expiresAt` and `claimUrl` with claim guidance.
+- Better waiting UX: long steps emit heartbeat/progress updates, not silent waits.
+
 ## Copy/Paste Quick Start
 
 > Run on **OpenClaw A** (source), then run on **OpenClaw B** (destination).
@@ -26,6 +50,64 @@ Before backup starts, it shows folder-size tree, but backup scope is now fixed t
 For large project/code directories, use GitHub sync (clone/pull) instead of Teleport backup.
 If archive is larger than 10MB, backup auto-splits into multiple DB parts; restore auto-downloads all parts and reassembles.
 
+Latest flow improvements for TiDB Cloud Zero:
+- backup calls Zero with `Idempotency-Key` and parses JSON response robustly (no brittle regex-only parsing)
+- backup persists `claimUrl` and `expiresAt` metadata (when provided) and surfaces expiry in handoff
+- backup stores archive `SHA256` in DB metadata; restore verifies checksum before extract when metadata exists
+- restore enforces part-count consistency (`total_parts`) before reassembly
+
+## TTL/Claim Lifecycle (What users should do)
+TiDB Cloud Zero instances are ephemeral. A backup may include `expiresAt` and `claimUrl` metadata.
+
+- During backup handoff, always keep `expiresAt` with the restore code.
+- On restore success, check whether the instance is close to expiration.
+- If near expiry, open `claimUrl` immediately to claim/convert before expiration.
+- Treat `claimUrl` as sensitive (like DSN/restore code); do not post it in public channels.
+
+Suggested post-restore message to user:
+```text
+Restore completed.
+- Status: success
+- Expires At: <ISO timestamp or unknown>
+- Claim Action: <claim now if near expiry>
+```
+
+Suggested backup handoff fields:
+```text
+Backup completed.
+- Parts: <n>
+- Upload duration: <seconds>
+- Upload avg rate: <MB/s>
+- Expires At: <ISO timestamp or unknown>
+- Claim URL: <claimUrl or unavailable>
+- Claim Action: <claim now if near expiry>
+```
+
+## Backup duration expectations
+Backup time is dominated by archive size, network latency/bandwidth, and sequential DB part writes.
+
+- 8 minutes can be reasonable for large archives or constrained network paths.
+- First run may be slower because `npx -y -p mysql2` may need package download/installation.
+- Use `Upload duration` and `Upload avg rate` to distinguish network bottleneck vs abnormal behavior.
+
+## Reducing wait anxiety (progress UX)
+During long-running backup/restore steps, always keep the user informed with heartbeat updates.
+
+- If a step runs longer than 30s, post progress every 20-30s.
+- Never stay silent for more than 45s.
+- Include stage + progress + elapsed time in each heartbeat.
+
+Suggested heartbeat format:
+```text
+[WORKING] <stage> — <progress> — elapsed <seconds>s
+```
+
+Examples:
+```text
+[WORKING] DSN provisioning — retry 2/5 — elapsed 34s
+[WORKING] Uploading parts — 7/24 (29%) — elapsed 91s
+[WORKING] Downloading parts — 12/40 (30%) — elapsed 76s
+```
 ```text
 # A: backup
 https://github.com/lilyjazz/openclaw-memory-teleport-skill/blob/main/skills/agent_teleport_backup/SKILL.md
@@ -46,22 +128,6 @@ Validated with real run:
 - Destination restored to `/home/ubuntu/.openclaw/workspace`
 - Safety backup created before overwrite
 - Core files successfully restored in-place
-
-## TTL/Claim Lifecycle (What users should do)
-TiDB Cloud Zero instances are ephemeral. A backup may include `expiresAt` and `claimUrl` metadata.
-
-- During backup handoff, always keep `expiresAt` with the restore code.
-- On restore success, check whether the instance is close to expiration.
-- If near expiry, open `claimUrl` immediately to claim/convert before expiration.
-- Treat `claimUrl` as sensitive (like DSN/restore code); do not post it in public channels.
-
-Suggested post-restore message to user:
-```text
-Restore completed.
-- Status: success
-- Expires At: <ISO timestamp or unknown>
-- Claim Action: <claim now if near expiry>
-```
 
 ## Requirements
 ### Backup side

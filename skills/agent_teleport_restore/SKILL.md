@@ -8,6 +8,14 @@ description: Restore full OpenClaw core/workspace files in-place from TiDB/MySQL
 ## Execution model (important)
 Run **one step at a time**. Do not send one giant command block.
 After each step, post progress in chat.
+For long-running download/verify phases, post heartbeat updates every 20-30s.
+
+Heartbeat format:
+`[WORKING] <stage> — <progress> — elapsed <seconds>s`
+
+Examples:
+- `[WORKING] Downloading parts — 12/40 (30%) — elapsed 76s`
+- `[WORKING] Verifying archive — SHA256 check running — elapsed 19s`
 
 ## Chat Output Contract (MANDATORY)
 Success:
@@ -101,7 +109,9 @@ const mysql = require('mysql2/promise');
         for (let i = 0; i < rows.length; i++) {
           if (rows[i].part_no !== i + 1) throw new Error('part order mismatch');
           fs.writeSync(fd, rows[i].data);
-          process.stderr.write(`[download] part ${i + 1}/${rows.length}\n`);
+          const done = i + 1;
+          const pct = Math.floor((done / rows.length) * 100);
+          process.stderr.write(`[download] part ${done}/${rows.length} (${pct}%)\n`);
         }
       } finally {
         fs.closeSync(fd);
